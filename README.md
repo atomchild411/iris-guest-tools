@@ -30,7 +30,6 @@ protocol to carry 64-bit addresses (in progress).
 | `hostcall/` | the host call trap (`hostcall_trap.c`, 64-bit arguments, n32 only; `hostcall_trap32.s`, 32-bit, both ABIs) and `hostcall_test.c` | `iris-hostcall` |
 | `gl/` | the replacement `libGL.so` (`glshim_*`) and its tests | `iris-hostgl` |
 | `irisgl/` | the replacement IRIS GL `libgl.so` (`irisgl_*`) | `iris-hostgl` |
-| `xapp/` | `xephyr-app`, which runs a program that needs a newer X server than Xsgi in its own nested Xephyr window, and `fillwm`, the window manager inside it that keeps the program the window's size; packaged on its own as pkgsrc's `x11/xephyr-app` (`clang/build.sh xapp`) | none |
 | `tools/` | the IRIS GL stub generator, and `sgidist.py`/`efs.py`, which read files out of SGI's CD images for the cross build | none |
 
 Build: `./build.sh [gl|cross|all]`. The n32 GL libraries, the GL tests and

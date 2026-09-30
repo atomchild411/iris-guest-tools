@@ -4,7 +4,7 @@
 # cross toolchain instead of MIPSpro on a guest, and package them for
 # /opt/pkgsrc.
 #
-#   clang/build.sh [build|check|package|xapp|all]     (default: all)
+#   clang/build.sh [build|check|package|all]     (default: all)
 #
 # Output goes to $WORK (default scratch/q-clang in the workspace): build/,
 # dist/iris-tools-irix65-n32.tgz, and sgi-657/ (SGI's link-time inputs,
@@ -25,12 +25,6 @@
 #                                      verifies they do not.
 #   build/iris-tools/bin/{glcheck,glbench,gltest,gloverlay,
 #                         irisgltest,hostcall_test}
-#
-# The xapp step builds xapp/ (fillwm and the xephyr-app launcher: newer X
-# programs in their own nested Xephyr window) into its own archive,
-# dist/xephyr-app-irix65-n32.tgz, for pkgsrc's x11/xephyr-app: it has
-# nothing to do with GL and needs Xephyr, so it is not part of the guest
-# tools package.
 #
 # Same SONAMEs, same NEEDED lists and the same exported symbol sets as the
 # MIPSpro build (the check step compares them with this repository's
@@ -216,32 +210,10 @@ package() {
 	done
 }
 
-# xapp: fillwm links with IRIX's own libX11 (core protocol only), so the
-# package needs nothing from pkgsrc but Xephyr and the XKB data. The archive,
-# rooted at /: opt/pkgsrc/bin/{fillwm,xephyr-app}.
-xapp() {
-	sgi_inputs
-	xo=$QC/build/xapp
-	rm -rf "$xo"
-	mkdir -p "$xo/opt/pkgsrc/bin"
-	# shellcheck disable=SC2086
-	"$CC" $CFLAGS -Wall -Wextra -Werror -o "$xo/opt/pkgsrc/bin/fillwm" \
-	    "$SRC/xapp/fillwm.c" $LIBDIRS -lX11
-	cp "$SRC/xapp/xephyr-app" "$xo/opt/pkgsrc/bin/"
-	chmod 755 "$xo"/opt/pkgsrc/bin/*
-	check_elf "$xo/opt/pkgsrc/bin/fillwm"
-	mkdir -p "$DIST"
-	(cd "$xo" && COPYFILE_DISABLE=1 tar --format ustar --uid 0 --gid 0 --uname root --gname sys \
-	    -czf "$DIST/xephyr-app-irix65-n32.tgz" opt)
-	echo "build-iris-tools: $DIST/xephyr-app-irix65-n32.tgz"
-	tar tvzf "$DIST/xephyr-app-irix65-n32.tgz"
-}
-
 case "${1:-all}" in
 build) build ;;
 check) check ;;
 package) package ;;
-xapp) xapp ;;
-all) build; check; package; xapp ;;
-*) echo "usage: $0 [build|check|package|xapp|all]" >&2; exit 2 ;;
+all) build; check; package ;;
+*) echo "usage: $0 [build|check|package|all]" >&2; exit 2 ;;
 esac

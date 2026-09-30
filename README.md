@@ -8,10 +8,40 @@ play for other emulators, and is built, versioned and installed on its own,
 as IRIX software.
 
 The host half -- the host call and the host GL service, Rust crates
-`iris-hostcall` and `iris-hostgl` -- lives in our IRIS tree and is not in
-upstream IRIS yet. Until it is, these libraries find no host GL and say so:
-under an IRIS without it, or on a real SGI machine, the host call fails with
-`EINVAL` and OpenGL calls do nothing.
+`iris-hostcall` and `iris-hostgl` -- is in IRIS (since 2026-09-30), behind
+its `hostgl` feature. Under an IRIS built without it, or on a real SGI
+machine, the host call fails with `EINVAL`, and these libraries say host GL
+is not available and draw nothing.
+
+## Quick start
+
+You need:
+
+- **IRIS with host GL.** It is not in IRIS's release builds yet: build IRIS
+  on a Mac with the `hostgl` feature, e.g.
+  `cargo build --release --features hostgl` (add `ip28,jitv2,tcache` for the
+  Indigo2 IMPACT R10000). Host GL uses Apple's OpenGL, so macOS only for now.
+- **IRIX 6.5** running in it, with a desktop you can log in to.
+- **A release** from this repository's Releases page. Its `VERSION` names the
+  host GL protocol it speaks and the IRIS that speaks it; the library checks
+  that when a program starts and says so if they differ.
+
+Then, on the IRIX machine as root:
+
+    gzcat iris-guest-tools-DATE-protoN.tgz | tar xf -
+    cd iris-guest-tools-DATE-protoN
+    ./install.sh          # switch IRIX's GL libraries to these
+    ./install.sh -u       # ...and back to SGI's, any time
+
+and, logged in to the desktop, `/usr/local/iris-tools/bin/n32/glcheck` should
+end with `glcheck: PASSED`. `install.sh` records SGI's setup the first time
+and only ever changes the links in `/var/arch`; `README.txt` in the release
+has the details. On a real SGI machine keep SGI's libraries: these draw
+nothing without IRIS.
+
+`release/make-release.sh` makes a release from a checkout (see its header).
+
+## About
 
 Nothing here is SGI's: no headers, libraries or code of theirs are kept in
 this repository. Where the build needs SGI's declarations -- IRIS GL's stubs
@@ -31,6 +61,7 @@ protocol to carry 64-bit addresses (in progress).
 | `gl/` | the replacement `libGL.so` (`glshim_*`) and its tests | `iris-hostgl` |
 | `irisgl/` | the replacement IRIS GL `libgl.so` (`irisgl_*`) | `iris-hostgl` |
 | `tools/` | the IRIS GL stub generator | none |
+| `release/` | `make-release.sh` (a binary release: the libraries, tests, `install.sh`, `VERSION`) and the release's `install.sh` and `README.txt` | none |
 
 Build: `./build.sh [gl|cross|all]`. The n32 GL libraries, the GL tests and
 `hostcall_test` also build on a Mac with an LLVM 21 IRIX cross toolchain,

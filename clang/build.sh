@@ -6,9 +6,9 @@
 #
 #   clang/build.sh [build|check|package|all]     (default: all)
 #
-# Output goes to $WORK (default scratch/q-clang in the workspace): build/,
-# dist/iris-tools-irix65-n32.tgz, and sgi-657/ (SGI's link-time inputs,
-# taken from the 6.5.7 CDs; never packaged).
+# Paths come from the environment: LLVMBIN, SYSROOT and SGI, and WORK for
+# the output (see common.sh).  Output: $WORK/build/ and
+# $WORK/dist/iris-tools-irix65-n32.tgz.
 #
 # What is built (the n32 half of iris-guest-tools/build.sh's gl step, plus the
 # host call test its cross step makes):
@@ -120,7 +120,7 @@ EOF
 
 # Address range of a library (every PT_LOAD, text through bss).
 span() {
-	WS="$WS" SYSROOT="$SYSROOT" SGI="$SGI" python3 "$HERE/undef-check.py" span "$1"
+	SYSROOT="$SYSROOT" SGI="$SGI" python3 "$HERE/undef-check.py" span "$1"
 }
 
 # trapdis LIB: the instructions of iris_hostcall_trap32, from its dynamic
@@ -136,7 +136,7 @@ check() {
 	status=0
 	echo "== ELF checks"
 	check_elf "$OUT"/lib/*.so "$OUT"/bin/* || status=1
-	WS="$WS" SYSROOT="$SYSROOT" SGI="$SGI" python3 "$HERE/undef-check.py" --shim "$OUT/lib/libglshim.so" --lib libgl.so="$OUT/lib/libirisgl.so" "$OUT"/lib/*.so "$OUT"/bin/* || status=1
+	SYSROOT="$SYSROOT" SGI="$SGI" python3 "$HERE/undef-check.py" --shim "$OUT/lib/libglshim.so" --lib libgl.so="$OUT/lib/libirisgl.so" "$OUT"/lib/*.so "$OUT"/bin/* || status=1
 
 	echo "== load ranges"
 	for l in libglshim.so libirisgl.so; do echo "   $l: $(span "$OUT/lib/$l")"; done

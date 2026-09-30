@@ -30,7 +30,7 @@ protocol to carry 64-bit addresses (in progress).
 | `hostcall/` | the host call trap (`hostcall_trap.c`, 64-bit arguments, n32 only; `hostcall_trap32.s`, 32-bit, both ABIs) and `hostcall_test.c` | `iris-hostcall` |
 | `gl/` | the replacement `libGL.so` (`glshim_*`) and its tests | `iris-hostgl` |
 | `irisgl/` | the replacement IRIS GL `libgl.so` (`irisgl_*`) | `iris-hostgl` |
-| `tools/` | the IRIS GL stub generator, and `sgidist.py`/`efs.py`, which read files out of SGI's CD images for the cross build | none |
+| `tools/` | the IRIS GL stub generator | none |
 
 Build: `./build.sh [gl|cross|all]`. The n32 GL libraries, the GL tests and
 `hostcall_test` also build on a Mac with an LLVM 21 IRIX cross toolchain,
@@ -39,7 +39,8 @@ Build: `./build.sh [gl|cross|all]`. The n32 GL libraries, the GL tests and
 undoes it). Same SONAMEs and exported symbols as the MIPSpro build; the IRIS GL
 library loads at 0x500000 instead of 0x480000 (lld pads segments to 64 KB).
 `clang/build.sh`'s header has the details, and `clang/common.sh` the paths it
-expects (each can be set from the environment). The gl step compiles with
+takes from the environment: the toolchain, an IRIX 6.5.7 sysroot, and SGI's
+libX11, libXext, libGLU and OpenGL `gl.h` from the same release. The gl step compiles with
 MIPSpro on a real (or emulated) IRIX host reached through `$IRIX_SSH`, which
 needs the IRIS GL and OpenGL development headers (`gl_dev.sw.gldev`); the
 cross step uses `irix-gcc`. Everything lands in `build/` (not versioned). The

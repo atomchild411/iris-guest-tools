@@ -1,37 +1,31 @@
-# Sourced by build.sh: the toolchain, and the
-# SGI files the builds link against that the LLVM sysroot does not have.
+# Sourced by build.sh: the toolchain, and the SGI files the build links
+# against that an LLVM IRIX sysroot does not have.  Every path comes from the
+# environment:
 #
-# The sysroot (scratch/llvm-irix/root, IRIX 6.5.7) has libc, libm, libgen,
-# libdmedia and most headers, but not libX11, libXext, libGLU or libaudio,
-# nor dmedia/audio.h; and its usr/include/GL and usr/include/gl are one
-# directory on this case-folding filesystem, holding IRIS GL's gl.h, not
-# OpenGL's.  The rest comes from the IRIX 6.5.7 CDs in media/ (read-only),
-# taken with tools/sgidist.py into $SGI -- the same
-# release as the sysroot (our floor: binaries must run on 6.5.7 to 6.5.30),
-# and the same files the MIPSpro build hosts had:
+#   LLVMBIN  the LLVM IRIX cross toolchain's bin directory (clang, llvm-nm,
+#            llvm-readobj, ...)
+#   SYSROOT  an IRIX 6.5.7 root: libc, libm and the headers, including IRIS
+#            GL's usr/include/gl/gl.h.  6.5.7 is the floor: what is built
+#            here must run on 6.5.7 to 6.5.30.
+#   SGI      SGI's files the sysroot lacks, laid out as on IRIX, from the
+#            same release (and the same files a MIPSpro build host has):
+#              usr/lib32/libX11.so, libXext.so   x_eoe.sw.eoe
+#              usr/lib32/libGLU.so               eoe.sw.gfx
+#              usr/include/GL/gl.h               gl_dev.sw.gldev (OpenGL's)
+#            They are SGI's: link-time inputs only.  Nothing from $SGI goes
+#            into a tarball (the package step copies named build outputs).
+#   WORK     build output and packages (default build/clang here, which git
+#            ignores)
 #
-#   usr/lib32/libX11.so.1    x_eoe.sw.eoe         Overlays (2-2), x_eoe_657m
-#   usr/lib32/libXext.so     x_eoe.sw.eoe         Overlays (2-2), x_eoe_657m
-#   usr/lib32/libGLU.so      eoe.sw.gfx           Installation Tools & Overlays (1-2), eoe_657m
-#   usr/lib32/libaudio.so.1  dmedia_eoe.sw.audio  Foundations (1-2), dmedia_eoe
-#   usr/include/GL/gl.h      gl_dev.sw.gldev      Development Libraries, gl_dev
-#   usr/include/dmedia/{audio,dmedia,cdaudio}.h  dmedia_dev.sw.base, Development Libraries
-#
-# (GL/glx.h, glxtokens.h and glu.h are the sysroot's, already 6.5.7m.)
-# They are SGI's: link-time inputs only.  Nothing from $SGI goes into a
-# tarball (the package steps copy named build outputs, never this tree).
+# (GL/glx.h, glxtokens.h and glu.h are the sysroot's, already 6.5.7m.  The
+# sysroot's usr/include/GL and usr/include/gl are one directory on a
+# case-folding filesystem, holding IRIS GL's gl.h: see build.sh.)
 
-# This repository, the workspace it sits in (two levels up), and the
-# work directory: build output, packages and the extracted SGI inputs, never
-# inside the repository.
 GT=$(cd "$HERE/.." && pwd)
-WS=${WS:-$(cd "$GT/../.." && pwd)}
-QC=${WORK:-$WS/scratch/q-clang}
-LLVMBIN=${LLVMBIN:-$WS/scratch/llvm-irix/cross21/bin}
-SYSROOT=${SYSROOT:-$WS/scratch/llvm-irix/root}
-SGI=$QC/sgi-657
-SGIDIST=$GT/tools/sgidist.py
-MEDIA=${MEDIA:-$WS/media/irix-6.5.7}
+: "${LLVMBIN:?set LLVMBIN to the bin directory of the LLVM IRIX cross toolchain}"
+: "${SYSROOT:?set SYSROOT to an IRIX 6.5.7 root}"
+: "${SGI:?set SGI to a directory holding SGI libX11, libXext, libGLU and GL/gl.h (see clang/common.sh)}"
+QC=${WORK:-$GT/build/clang}
 
 CC=$LLVMBIN/clang
 NM=$LLVMBIN/llvm-nm
@@ -45,23 +39,11 @@ STRIP=$LLVMBIN/llvm-strip
 # (the GL command encoders) was only ever built without it.
 COMMON_CFLAGS="-funsigned-char -fno-strict-aliasing -fcommon"
 
-sgi_get() {	# sgi_get ISO IDB PATH
-	[ -s "$SGI/$3" ] && return 0
-	python3 "$SGIDIST" get "$MEDIA/$1" "$2" "$3" '' "$SGI/$3" >/dev/null
-}
-
+# sgi_inputs: fail early, and say what is missing, when $SGI lacks a file.
 sgi_inputs() {
-	mkdir -p "$SGI/usr/lib32" "$SGI/usr/include/GL" "$SGI/usr/include/dmedia"
-	sgi_get "Overlays (2-2).iso" /dist/x_eoe_657m.idb usr/lib32/libX11.so.1
-	sgi_get "Overlays (2-2).iso" /dist/x_eoe_657m.idb usr/lib32/libXext.so
-	sgi_get "Installation Tools & Overlays (1-2).iso" /dist/eoe_657m.idb usr/lib32/libGLU.so
-	sgi_get "Foundations (1-2).iso" /dist/dmedia_eoe.idb usr/lib32/libaudio.so.1
-	sgi_get "Development Libraries.iso" /dist/gl_dev.idb usr/include/GL/gl.h
-	for h in audio dmedia cdaudio; do
-		sgi_get "Development Libraries.iso" /dist/dmedia_dev.idb usr/include/dmedia/$h.h
+	for f in usr/lib32/libX11.so usr/lib32/libXext.so usr/lib32/libGLU.so usr/include/GL/gl.h; do
+		[ -e "$SGI/$f" ] || { echo "clang/build.sh: $SGI/$f is missing (see clang/common.sh)" >&2; exit 1; }
 	done
-	ln -sf libX11.so.1 "$SGI/usr/lib32/libX11.so"
-	ln -sf libaudio.so.1 "$SGI/usr/lib32/libaudio.so"
 }
 
 # check_elf FILE...: what the report needs for every binary and library.

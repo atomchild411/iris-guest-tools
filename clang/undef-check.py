@@ -16,10 +16,8 @@ import os
 import struct
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-WS = os.environ.get('WS', os.path.normpath(HERE + '/../../..'))
-SYSROOT = os.environ.get('SYSROOT', WS + '/scratch/llvm-irix/root')
-SGI = os.environ.get('SGI', WS + '/scratch/q-clang/sgi-657')   # build.sh passes its own
+SYSROOT = os.environ['SYSROOT']       # both set by build.sh (clang/common.sh)
+SGI = os.environ['SGI']
 
 # Provided by rld or by the main program to the libraries it loads.
 RLD = {'_rld_new_interface', '__rld_obj_head', '_DYNAMIC_LINK', '_DYNAMIC_LINKING',

@@ -1,0 +1,131 @@
+#!/bin/sh
+#
+# xephyr-app -- run an X application that needs a newer X server than IRIX's
+# Xsgi (RENDER, XInput 2, RANDR, ...) in a window of its own on the IRIX
+# desktop: a nested Xephyr display, with fillwm keeping the application's
+# main window the size of Xephyr's, which follows when the window is resized.
+#
+#   xephyr-app [-g WIDTHxHEIGHT] [-t title] [-k keycodes] [-l layout]
+#              [-x "xephyr options"] command [args...]
+#
+#   -g  initial size (default 1024x768)
+#   -t  window title (default: the command's name)
+#   -k  XKB keycodes of the host server (default sgi_vndr/indy, Xsgi's);
+#       "none" leaves Xephyr's own
+#   -l  XKB symbols (default pc+us)
+#   -x  more options for Xephyr
+#
+# Xephyr passes the host's keycodes through unchanged but reads them with
+# its own XKB keycodes, which are Linux's (evdev) and not Xsgi's, so before
+# the application starts the nested display is given a keymap with the
+# host's keycodes, by xkbcomp.
+#
+# The nested display is the first free :N from :1; the application gets it as
+# $DISPLAY. When the application exits, fillwm and Xephyr go with it, and
+# xephyr-app exits with the application's status. Closing the window ends
+# Xephyr, and with it the application's connection.
+#
+# XEPHYR and FILLWM name the programs (default: beside this script, then
+# /opt/pkgsrc/bin); XEPHYR_APP_DEBUG=1 keeps Xephyr's and fillwm's output
+# on stderr instead of discarding it.
+
+usage() {
+	echo "usage: xephyr-app [-g WIDTHxHEIGHT] [-t title] [-k keycodes] [-l layout] [-x \"xephyr options\"] command [args...]" >&2
+	exit 2
+}
+
+geometry=1024x768
+title=
+keycodes=sgi_vndr/indy
+layout=pc+us
+xopts=
+while [ $# -gt 0 ]; do
+	case $1 in
+	-g) [ $# -ge 2 ] || usage; geometry=$2; shift 2 ;;
+	-t) [ $# -ge 2 ] || usage; title=$2; shift 2 ;;
+	-k) [ $# -ge 2 ] || usage; keycodes=$2; shift 2 ;;
+	-l) [ $# -ge 2 ] || usage; layout=$2; shift 2 ;;
+	-x) [ $# -ge 2 ] || usage; xopts=$2; shift 2 ;;
+	--) shift; break ;;
+	-*) usage ;;
+	*) break ;;
+	esac
+done
+[ $# -ge 1 ] || usage
+[ -n "$title" ] || title=`basename "$1"`
+[ -n "$DISPLAY" ] || { echo "xephyr-app: DISPLAY is not set" >&2; exit 1; }
+
+here=`dirname "$0"`
+find_prog() {
+	if [ -x "$here/$1" ]; then echo "$here/$1"; else echo "/opt/pkgsrc/bin/$1"; fi
+}
+XEPHYR=${XEPHYR:-`find_prog Xephyr`}
+FILLWM=${FILLWM:-`find_prog fillwm`}
+XKBCOMP=${XKBCOMP:-`find_prog xkbcomp`}
+XKBDIR=${XKBDIR:-`dirname "$XEPHYR"`/../share/X11/xkb}
+
+if [ -n "$XEPHYR_APP_DEBUG" ]; then exec 3>&2; else exec 3>/dev/null; fi
+
+# The first display number with neither a lock file nor a socket.
+n=1
+while [ -e /tmp/.X$n-lock ] || [ -e /tmp/.X11-unix/X$n ]; do
+	n=`expr $n + 1`
+	[ $n -lt 64 ] || { echo "xephyr-app: no free display number" >&2; exit 1; }
+done
+
+# -noreset: the keymap below is loaded by a client that leaves at once, and
+# a server whose last client leaves resets, keymap and all.
+"$XEPHYR" :$n -resizeable -no-host-grab -noreset -title "$title" \
+	-screen "$geometry" \
+	$xopts >&3 2>&3 &
+xephyr=$!
+fillwm=
+# Signalled, take the nested display down with us.
+trap 'kill $fillwm $xephyr 2>/dev/null; exit 129' HUP
+trap 'kill $fillwm $xephyr 2>/dev/null; exit 130' INT
+trap 'kill $fillwm $xephyr 2>/dev/null; exit 143' TERM
+
+# Xephyr is ready once it listens.
+tries=0
+while [ ! -e /tmp/.X11-unix/X$n ]; do
+	if ! kill -0 $xephyr 2>/dev/null; then
+		echo "xephyr-app: Xephyr failed to start (XEPHYR_APP_DEBUG=1 shows why)" >&2
+		exit 1
+	fi
+	tries=`expr $tries + 1`
+	if [ $tries -gt 120 ]; then
+		kill $xephyr
+		echo "xephyr-app: Xephyr did not come up on :$n" >&2
+		exit 1
+	fi
+	sleep 1
+done
+
+DISPLAY=:$n
+export DISPLAY
+if [ "$keycodes" != none ]; then
+	"$XKBCOMP" -w 0 -I"$XKBDIR" - $DISPLAY >&3 2>&3 <<EOF || \
+	    echo "xephyr-app: could not load the $keycodes keymap" >&2
+xkb_keymap {
+	xkb_keycodes	{ include "$keycodes" };
+	xkb_types	{ include "complete" };
+	xkb_compat	{ include "complete" };
+	xkb_symbols	{ include "$layout" };
+	xkb_geometry	{ include "pc(pc104)" };
+};
+EOF
+fi
+"$FILLWM" >&3 2>&3 &
+fillwm=$!
+
+"$@" &
+app=$!
+trap 'kill $app $fillwm $xephyr 2>/dev/null; exit 129' HUP
+trap 'kill $app $fillwm $xephyr 2>/dev/null; exit 130' INT
+trap 'kill $app $fillwm $xephyr 2>/dev/null; exit 143' TERM
+wait $app
+status=$?
+
+kill $fillwm $xephyr 2>/dev/null
+wait
+exit $status

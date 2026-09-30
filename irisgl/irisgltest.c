@@ -1,0 +1,911 @@
+/*
+ * IRIS GL checks for IRIS's IRIS GL library, run inside the guest with the
+ * shim installed as libgl.so, DISPLAY set and a window manager running:
+ *
+ *   irisgltest
+ *
+ * Each check sets state or draws, then reads it back -- lrectread,
+ * readpixels, getmatrix, getsize, getcpos, the event queue -- and prints ok
+ * or FAIL with what it saw. The expected values are what the IRIS GL manual
+ * pages specify, not what the shim happens to do, so the same binary checks
+ * SGI's own libgl.so on real hardware. The areas are the ones programs on
+ * this image lean on: window sizing, colour in both modes, the matrix stack,
+ * the z-buffer, backface removal, drawing to the front buffer, the pixel
+ * calls, text, objects, the queue, lighting, blending, texturing and NURBS.
+ *
+ * Colours: IRIS GL packs RGBA as 0xAABBGGRR (cpack, lrectread); pix()
+ * returns the low 24 bits, so red is 0x0000ff and blue 0xff0000. (The C_
+ * prefix: gl.h already names the colour map's first indices RED, GREEN ...)
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <unistd.h>
+/* X before IRIS GL, whose gl.h would otherwise clash with X over Cursor. */
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <gl/gl.h>
+#include <gl/device.h>
+#include <gl/glws.h>
+
+/* Bigger than 4Dwm's smallest window (its title bar sets the width), and the
+ * coordinates come from getsize anyway: see pixel_ortho. */
+#define W 128
+#define H 128
+#define C_RED     0x0000ffUL
+#define C_GREEN   0x00ff00UL
+#define C_BLUE    0xff0000UL
+#define C_YELLOW  0x00ffffUL
+#define C_BLACK   0x000000UL
+
+static int failures;
+static const Matrix identity = {
+	{ 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 0, 0, 1, 0 }, { 0, 0, 0, 1 }
+};
+
+static void
+check(const char *what, int good)
+{
+	printf("%s %s\n", good ? "ok  " : "FAIL", what);
+	fflush(stdout);
+	if (!good)
+		failures++;
+}
+
+static unsigned long
+pix(int x, int y)
+{
+	unsigned long p = 0;
+
+	lrectread((Screencoord)x, (Screencoord)y, (Screencoord)x, (Screencoord)y, &p);
+	return p & 0xffffffUL;
+}
+
+static int
+chan(unsigned long p, int shift)
+{
+	return (int)((p >> shift) & 0xff);
+}
+
+/* One unit to a pixel, pixel centres on integer coordinates, from the size
+ * the window really has. */
+static void
+pixel_ortho(int depth)
+{
+	long w = W, h = H;
+
+	getsize(&w, &h);
+	if (depth)
+		ortho(-0.5, w - 0.5, -0.5, h - 0.5, -1.0, 1.0);
+	else
+		ortho2(-0.5, w - 0.5, -0.5, h - 0.5);
+}
+
+/* An RGB, single-buffered W x H window with window-pixel coordinates. */
+static long
+rgb_window(const char *name)
+{
+	long gid;
+
+	prefsize(W, H);
+	gid = winopen((char *)name);
+	RGBmode();
+	gconfig();
+	pixel_ortho(0);
+	cpack(C_BLACK);
+	clear();
+	return gid;
+}
+
+static void
+t_window(void)
+{
+	long gid, w = 0, h = 0;
+	char what[96];
+
+	/* A window with only a minimum size is made that big by the window
+	 * manager before winopen returns (winopen waits for it to map). */
+	minsize(200, 150);
+	gid = winopen("irisgltest minsize");
+	getsize(&w, &h);
+	sprintf(what, "getsize after winopen honours minsize (200x150): %ldx%ld", w, h);
+	check(what, w >= 200 && h >= 150);
+	winclose(gid);
+
+	/* Bigger than 4Dwm's smallest window, which its title bar sets. */
+	prefsize(160, 120);
+	gid = winopen("irisgltest prefsize");
+	getsize(&w, &h);
+	sprintf(what, "getsize after prefsize(160, 120): %ldx%ld", w, h);
+	check(what, w == 160 && h == 120);
+	winclose(gid);
+}
+
+static void
+t_gdesc(void)
+{
+	check("getgdesc(GD_XPMAX) is the screen width", getgdesc(GD_XPMAX) > 0);
+	check("getgdesc(GD_ZMAX) is nonzero", getgdesc(GD_ZMAX) > 0);
+	check("getgdesc(GD_BITS_NORM_DBL_RED) >= 8", getgdesc(GD_BITS_NORM_DBL_RED) >= 8);
+}
+
+static void
+t_clear_rect(void)
+{
+	long gid = rgb_window("irisgltest clear");
+	unsigned long p;
+	char what[96];
+
+	cpack(C_RED);
+	clear();
+	p = pix(5, 5);
+	sprintf(what, "cpack + clear fills the window: %06lx", p);
+	check(what, p == C_RED);
+
+	cpack(C_GREEN);
+	rectf(10, 10, 20, 20);
+	check("rectf fills its rectangle", pix(15, 15) == C_GREEN);
+	check("rectf leaves the outside alone", pix(30, 30) == C_RED);
+	/* IRIS GL fills the pixels on all four edges of a rectangle; OpenGL's
+	 * glRect leaves the right and top ones out. */
+	sprintf(what, "rectf includes both corners: %06lx %06lx", pix(10, 10), pix(20, 20));
+	check(what, pix(10, 10) == C_GREEN && pix(20, 20) == C_GREEN);
+
+	cpack(C_BLUE);
+	bgnpolygon();
+	{
+		static float v[4][2] = { { 30, 30 }, { 50, 30 }, { 50, 50 }, { 30, 50 } };
+		int i;
+		for (i = 0; i < 4; i++)
+			v2f(v[i]);
+	}
+	endpolygon();
+	check("bgnpolygon/v2f/endpolygon fills the polygon", pix(40, 40) == C_BLUE);
+	winclose(gid);
+}
+
+static void
+t_cmode(void)
+{
+	long gid;
+	short r = 0, g = 0, b = 0;
+	Colorindex ci = 99;
+	char what[96];
+
+	prefsize(W, H);
+	gid = winopen("irisgltest cmode");
+	/* colour map mode is the default; gconfig commits it */
+	gconfig();
+	getmcolor(1, &r, &g, &b);
+	sprintf(what, "the default colour map: index 1 is red (%d %d %d)", r, g, b);
+	check(what, r == 255 && g == 0 && b == 0);
+	/*
+	 * A colour no other index has: the library draws colour map windows in
+	 * RGB and reads an index back as the nearest colour, so two indices
+	 * with the same colour cannot be told apart. A known limit, not what
+	 * this checks.
+	 */
+	mapcolor(9, 10, 200, 30);
+	getmcolor(9, &r, &g, &b);
+	check("mapcolor then getmcolor", r == 10 && g == 200 && b == 30);
+	color(9);
+	clear();
+	cmov2i(5, 5);
+	readpixels(1, &ci);
+	sprintf(what, "color + clear in colour map mode, read back as an index: %d", (int)ci);
+	check(what, ci == 9);
+	winclose(gid);
+}
+
+static void
+t_matrix(void)
+{
+	long gid = rgb_window("irisgltest matrix");
+	Matrix m;
+	int ident, i, j;
+
+	mmode(MVIEWING);
+	loadmatrix(identity);
+	pushmatrix();
+	translate(1.0f, 2.0f, 3.0f);
+	getmatrix(m);
+	check("translate is the matrix's last row", m[3][0] == 1.0f && m[3][1] == 2.0f && m[3][2] == 3.0f);
+	popmatrix();
+	getmatrix(m);
+	ident = 1;
+	for (i = 0; i < 4; i++)
+		for (j = 0; j < 4; j++)
+			if (m[i][j] != (i == j ? 1.0f : 0.0f))
+				ident = 0;
+	check("popmatrix restores the matrix", ident);
+	scale(2.0f, 3.0f, 4.0f);
+	getmatrix(m);
+	check("scale is the diagonal", m[0][0] == 2.0f && m[1][1] == 3.0f && m[2][2] == 4.0f);
+	mmode(MSINGLE);
+	winclose(gid);
+}
+
+static void
+t_perspective(void)
+{
+	static float v[4][3] = { { -5, -5, -10 }, { 5, -5, -10 }, { 5, 5, -10 }, { -5, 5, -10 } };
+	long gid = rgb_window("irisgltest perspective");
+	long w = W, h = H;
+	int i;
+
+	getsize(&w, &h);
+	mmode(MVIEWING);
+	/* perspective takes tenths of a degree; near = 0 is allowed (amesh). */
+	perspective(900, (float)w / (float)h, 0.0f, 100.0f);
+	loadmatrix(identity);
+	cpack(C_GREEN);
+	bgnpolygon();
+	for (i = 0; i < 4; i++)
+		v3f(v[i]);
+	endpolygon();
+	check("perspective with near = 0 still projects", pix(w / 2, h / 2) == C_GREEN);
+	cpack(C_BLACK);
+	clear();
+	perspective(900, (float)w / (float)h, 1.0f, 100.0f);
+	cpack(C_GREEN);
+	bgnpolygon();
+	for (i = 0; i < 4; i++)
+		v3f(v[i]);
+	endpolygon();
+	check("perspective in MVIEWING sets the projection", pix(w / 2, h / 2) == C_GREEN);
+	mmode(MSINGLE);
+	winclose(gid);
+}
+
+static void
+t_zbuffer(void)
+{
+	long gid;
+	unsigned long a, b;
+
+	prefsize(W, H);
+	gid = winopen("irisgltest zbuffer");
+	RGBmode();
+	gconfig();
+	pixel_ortho(1);
+	zbuffer(TRUE);
+
+	/* Two overlapping rectangles at different depths: whichever is drawn
+	 * first, the same one must show. */
+	czclear(C_BLACK, getgdesc(GD_ZMAX));
+	cpack(C_RED);
+	pmv(10, 10, 0.5f); pdr(40, 10, 0.5f); pdr(40, 40, 0.5f); pdr(10, 40, 0.5f); pclos();
+	cpack(C_GREEN);
+	pmv(20, 20, -0.5f); pdr(50, 20, -0.5f); pdr(50, 50, -0.5f); pdr(20, 50, -0.5f); pclos();
+	a = pix(30, 30);
+
+	czclear(C_BLACK, getgdesc(GD_ZMAX));
+	cpack(C_GREEN);
+	pmv(20, 20, -0.5f); pdr(50, 20, -0.5f); pdr(50, 50, -0.5f); pdr(20, 50, -0.5f); pclos();
+	cpack(C_RED);
+	pmv(10, 10, 0.5f); pdr(40, 10, 0.5f); pdr(40, 40, 0.5f); pdr(10, 40, 0.5f); pclos();
+	b = pix(30, 30);
+	check("the z-buffer decides the overlap, whatever the order", a == b && (a == C_RED || a == C_GREEN));
+
+	zbuffer(FALSE);
+	winclose(gid);
+}
+
+static void
+t_backface(void)
+{
+	long gid = rgb_window("irisgltest backface");
+
+	backface(TRUE);
+	cpack(C_GREEN);
+	/* counter-clockwise on the screen: kept */
+	pmv2i(5, 5); pdr2i(25, 5); pdr2i(25, 25); pdr2i(5, 25); pclos();
+	/* clockwise: removed */
+	pmv2i(35, 35); pdr2i(35, 55); pdr2i(55, 55); pdr2i(55, 35); pclos();
+	check("backface keeps a counter-clockwise polygon", pix(15, 15) == C_GREEN);
+	check("backface removes a clockwise polygon", pix(45, 45) == C_BLACK);
+	backface(FALSE);
+	winclose(gid);
+}
+
+static void
+t_front(void)
+{
+	long gid;
+	unsigned long f, b;
+	char what[96];
+
+	prefsize(W, H);
+	gid = winopen("irisgltest frontbuffer");
+	doublebuffer();
+	RGBmode();
+	gconfig();
+	pixel_ortho(0);
+	cpack(C_BLACK);
+	clear();
+	swapbuffers();
+	clear();
+
+	/* frontbuffer(TRUE) with backbuffer on (the default) draws into both. */
+	frontbuffer(TRUE);
+	cpack(C_YELLOW);
+	rectf(10, 10, 30, 30);
+	frontbuffer(FALSE);
+	readsource(SRC_FRONT);
+	f = pix(20, 20);
+	readsource(SRC_BACK);
+	b = pix(20, 20);
+	readsource(SRC_AUTO);
+	sprintf(what, "frontbuffer(TRUE) draws into the front buffer: %06lx", f);
+	check(what, f == C_YELLOW);
+	sprintf(what, "... and, with backbuffer on, the back buffer too: %06lx", b);
+	check(what, b == C_YELLOW);
+
+	/* A swap shows the back buffer. */
+	cpack(C_BLUE);
+	clear();
+	swapbuffers();
+	readsource(SRC_FRONT);
+	f = pix(5, 5);
+	readsource(SRC_AUTO);
+	check("swapbuffers makes the back buffer the front", f == C_BLUE);
+	winclose(gid);
+}
+
+static void
+t_pixels(void)
+{
+	long gid = rgb_window("irisgltest pixels");
+	unsigned long in[4] = { C_RED, C_GREEN, C_BLUE, C_YELLOW }, out[4];
+	int i, same;
+
+	lrectwrite(10, 10, 11, 11, in);
+	memset(out, 0, sizeof out);
+	lrectread(10, 10, 11, 11, out);
+	same = 1;
+	for (i = 0; i < 4; i++)
+		if ((out[i] & 0xffffffUL) != in[i])
+			same = 0;
+	check("lrectwrite then lrectread, 2x2, bottom row first", same);
+
+	cpack(C_GREEN);
+	rectf(2, 40, 8, 46);
+	rectcopy(2, 40, 8, 46, 40, 2);
+	check("rectcopy copies the rectangle", pix(43, 5) == C_GREEN);
+	check("... and leaves the source", pix(5, 43) == C_GREEN);
+	winclose(gid);
+}
+
+static void
+t_text(void)
+{
+	long gid = rgb_window("irisgltest text");
+	short x = 0, y = 0;
+	unsigned long area[20 * 16];
+	int i, lit = 0;
+	char what[96];
+
+	cpack(0xffffffUL);
+	cmov2i(10, 20);
+	charstr("W");
+	getcpos(&x, &y);
+	sprintf(what, "charstr moves the character position right: %d", (int)x);
+	check(what, x > 10);
+	lrectread(8, 16, 27, 31, area);
+	for (i = 0; i < 20 * 16; i++)
+		if ((area[i] & 0xffffffUL) != C_BLACK)
+			lit++;
+	sprintf(what, "charstr draws the character: %d pixels", lit);
+	check(what, lit > 4);
+	winclose(gid);
+}
+
+static void
+t_objects(void)
+{
+	long gid = rgb_window("irisgltest objects");
+
+	makeobj(1);
+	cpack(C_BLUE);
+	rectf(20, 20, 40, 40);
+	closeobj();
+	check("makeobj records rather than draws", pix(30, 30) == C_BLACK);
+	callobj(1);
+	check("callobj draws what was recorded", pix(30, 30) == C_BLUE);
+	delobj(1);
+	winclose(gid);
+}
+
+static void
+t_queue(void)
+{
+	long gid = rgb_window("irisgltest queue");
+	short val = 0;
+	long dev;
+
+	qreset();
+	qenter(REDRAW, 5);
+	check("qtest sees an entered event", qtest() == REDRAW);
+	dev = qread(&val);
+	check("qread returns its device and value", dev == REDRAW && val == 5);
+	winclose(gid);
+}
+
+static void
+t_lighting(void)
+{
+	static float mat[] = { DIFFUSE, 1.0f, 0.0f, 0.0f, LMNULL };
+	static float light[] = { LCOLOR, 1.0f, 1.0f, 1.0f, POSITION, 0.0f, 0.0f, 1.0f, 0.0f, LMNULL };
+	static float model[] = { LMNULL };
+	long gid = rgb_window("irisgltest lighting");
+	unsigned long p;
+	char what[96];
+
+	mmode(MVIEWING);
+	pixel_ortho(1);
+	loadmatrix(identity);
+	/* Any positive short names a definition: Performer's start at 2049. */
+	lmdef(DEFMATERIAL, 2049, 5, mat);
+	lmdef(DEFLIGHT, 1, 10, light);
+	lmdef(DEFLMODEL, 1, 1, model);
+	lmbind(MATERIAL, 2049);
+	lmbind(LIGHT0, 1);
+	lmbind(LMODEL, 1);
+	{
+		static float n[3] = { 0, 0, 1 };
+		static float v[4][3] = { { 10, 10, 0 }, { 50, 10, 0 }, { 50, 50, 0 }, { 10, 50, 0 } };
+		int i;
+		bgnpolygon();
+		for (i = 0; i < 4; i++) {
+			n3f(n);
+			v3f(v[i]);
+		}
+		endpolygon();
+	}
+	p = pix(30, 30);
+	sprintf(what, "a red material lit head on is red: %06lx", p);
+	check(what, chan(p, 0) > 160 && chan(p, 8) < 40 && chan(p, 16) < 40);
+
+	/* A matrix that squashes the model stretches its normals; lighting uses
+	 * them at unit length all the same (nmode NAUTO). demograph draws its map
+	 * at scale(1, 1, 1e-8). */
+	cpack(C_BLACK);
+	clear();
+	pushmatrix();
+	scale(1.0f, 1.0f, 1e-4f);
+	{
+		static float n[3] = { 0, 0, 1 };
+		static float v[4][3] = { { 10, 10, 0 }, { 50, 10, 0 }, { 50, 50, 0 }, { 10, 50, 0 } };
+		int i;
+		bgnpolygon();
+		for (i = 0; i < 4; i++) {
+			n3f(n);
+			v3f(v[i]);
+		}
+		endpolygon();
+	}
+	popmatrix();
+	p = pix(30, 30);
+	lmbind(MATERIAL, 0);
+	mmode(MSINGLE);
+	sprintf(what, "... and still red under a squashing scale: %06lx", p);
+	check(what, chan(p, 0) > 160 && chan(p, 8) < 40 && chan(p, 16) < 40);
+	winclose(gid);
+}
+
+static void
+t_blend(void)
+{
+	long gid = rgb_window("irisgltest blend");
+	unsigned long p;
+	char what[96];
+
+	cpack(C_BLUE);
+	clear();
+	blendfunction(BF_SA, BF_MSA);
+	cpack(0x800000ffUL);            /* red at half alpha */
+	rectf(10, 10, 30, 30);
+	blendfunction(BF_ONE, BF_ZERO);
+	p = pix(20, 20);
+	sprintf(what, "blendfunction(BF_SA, BF_MSA) mixes half and half: %06lx", p);
+	check(what, chan(p, 0) > 100 && chan(p, 0) < 156 && chan(p, 16) > 100 && chan(p, 16) < 156);
+	winclose(gid);
+}
+
+static void
+t_texture(void)
+{
+	static unsigned long white[4] = { 0xffffffffUL, 0xffffffffUL, 0xffffffffUL, 0xffffffffUL };
+	static float tprops[] = { TX_MINFILTER, TX_POINT, TX_NULL };
+	static float tevprops[] = { TV_MODULATE, TV_NULL };
+	long gid = rgb_window("irisgltest texture");
+	unsigned long p;
+	char what[96];
+
+	texdef2d(1, 4, 2, 2, white, 3, tprops);
+	tevdef(1, 2, tevprops);
+	texbind(TX_TEXTURE_0, 1);
+	tevbind(TV_ENV0, 1);
+	cpack(C_GREEN);
+	{
+		static float t[4][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+		static float v[4][2] = { { 10, 10 }, { 50, 10 }, { 50, 50 }, { 10, 50 } };
+		int i;
+		bgnpolygon();
+		for (i = 0; i < 4; i++) {
+			t2f(t[i]);
+			v2f(v[i]);
+		}
+		endpolygon();
+	}
+	texbind(TX_TEXTURE_0, 0);
+	p = pix(30, 30);
+	sprintf(what, "a white texture modulating green is green: %06lx", p);
+	check(what, p == C_GREEN);
+	winclose(gid);
+}
+
+static void
+t_nurbs(void)
+{
+	/* A bilinear patch: order 2 both ways, a 2x2 grid of control points. */
+	static double knots[4] = { 0, 0, 1, 1 };
+	static double ctl[2][2][3] = {
+		{ { 10, 10, 0 }, { 10, 50, 0 } },
+		{ { 50, 10, 0 }, { 50, 50, 0 } },
+	};
+	long gid = rgb_window("irisgltest nurbs");
+	unsigned long p;
+	char what[96];
+
+	cpack(C_GREEN);
+	bgnsurface();
+	nurbssurface(4, knots, 4, knots, sizeof ctl[0], sizeof ctl[0][0],
+	    &ctl[0][0][0], 2, 2, N_XYZ);
+	endsurface();
+	p = pix(30, 30);
+	sprintf(what, "a NURBS surface is drawn: %06lx", p);
+	check(what, p == C_GREEN);
+	check("... and only where it is", pix(5, 5) == C_BLACK && pix(58, 58) == C_BLACK);
+	winclose(gid);
+}
+
+/* The X window named `name`, searched for from `w` down. */
+static Window
+named_window(Display *d, Window w, const char *name)
+{
+	Window root, parent, *kids, found = None;
+	unsigned int n, i;
+	char *wn = NULL;
+
+	if (XFetchName(d, w, &wn) && wn != NULL) {
+		int same = strcmp(wn, name) == 0;
+
+		XFree(wn);
+		if (same)
+			return w;
+	}
+	if (!XQueryTree(d, w, &root, &parent, &kids, &n))
+		return None;
+	for (i = 0; i < n && found == None; i++)
+		found = named_window(d, kids[i], name);
+	if (kids)
+		XFree(kids);
+	return found;
+}
+
+/* A square over (40..50, 40..50) at depth z. */
+static void
+square(float z)
+{
+	float v[4][3];
+	int i;
+
+	for (i = 0; i < 4; i++) {
+		v[i][0] = i == 1 || i == 2 ? 50.0f : 40.0f;
+		v[i][1] = i >= 2 ? 50.0f : 40.0f;
+		v[i][2] = z;
+	}
+	bgnpolygon();
+	for (i = 0; i < 4; i++)
+		v3f(v[i]);
+	endpolygon();
+}
+
+/*
+ * The overlay and popup planes, where the server has an overlay visual: what
+ * is drawn in OVERDRAW is an index in the overlay (a child window, 8 bits,
+ * read back here through X), leaves the normal planes as they were, and
+ * index 0 is transparent. The z-buffer is the window's, not the draw mode's:
+ * turned off in the overlay, it is off for normal drawing.
+ */
+static void
+t_layers(void)
+{
+	static const char name[] = "irisgltest layers";
+	Display *d;
+	Window w, over = None, root, parent, *kids;
+	unsigned int n, i;
+	XWindowAttributes wa;
+	XImage *im;
+	short r, g, b;
+	long gid, bits = getgdesc(GD_BITS_OVER_SNG_CMODE);
+	char what[96];
+
+	printf("=    getgdesc: overlay %ld bits, popup %ld\n", bits, getgdesc(GD_BITS_PUP_SNG_CMODE));
+	if (bits <= 0) {
+		printf("=    no overlay planes: the layer checks are skipped\n");
+		return;
+	}
+	check("getgdesc(GD_BITS_OVER_SNG_CMODE) is 8", bits == 8);
+	gid = rgb_window(name);
+	zbuffer(TRUE);
+	cpack(C_RED);
+	clear();
+	drawmode(OVERDRAW);
+	mapcolor(5, 0, 255, 0);
+	color(0);
+	clear();
+	color(5);
+	rectf(8, 8, 23, 23);
+	/* Off here, off for the normal planes too. */
+	zbuffer(FALSE);
+	drawmode(NORMALDRAW);
+	gflush();
+	check("drawing in the overlay leaves the normal planes alone", pix(15, 15) == C_RED);
+	/* A near square, then a far one over it: with the z-buffer on the near
+	 * one would stay. */
+	pixel_ortho(1);
+	zclear();
+	cpack(C_BLUE);
+	square(0.5f);
+	cpack(C_GREEN);
+	square(-0.5f);
+	gflush();
+	check("the z-buffer turned off in the overlay is off for normal drawing", pix(45, 45) == C_GREEN);
+	drawmode(OVERDRAW);
+	getmcolor(5, &r, &g, &b);
+	check("the overlay's own colour map", r == 0 && g == 255 && b == 0);
+	drawmode(NORMALDRAW);
+
+	if ((d = XOpenDisplay(NULL)) == NULL) {
+		check("an X connection to look at the overlay", 0);
+		winclose(gid);
+		return;
+	}
+	w = named_window(d, DefaultRootWindow(d), name);
+	if (w != None && XQueryTree(d, w, &root, &parent, &kids, &n)) {
+		for (i = 0; i < n; i++)
+			if (XGetWindowAttributes(d, kids[i], &wa) && wa.depth == 8)
+				over = kids[i];
+		if (kids)
+			XFree(kids);
+	}
+	check("the window has an 8-bit overlay window over it", over != None);
+	if (over != None && (im = XGetImage(d, over, 0, 0, wa.width, wa.height, AllPlanes, ZPixmap)) != NULL) {
+		unsigned long in = XGetPixel(im, 15, wa.height - 1 - 15);
+		unsigned long out = XGetPixel(im, 40, wa.height - 1 - 40);
+
+		sprintf(what, "the overlay holds index 5 in the rectangle, 0 around it (%lu, %lu)", in, out);
+		check(what, in == 5 && out == 0);
+		XDestroyImage(im);
+	}
+	XCloseDisplay(d);
+	winclose(gid);
+}
+
+/*
+ * The GLX mixed model with an overlay: the program asks GLXgetconfig for the
+ * normal planes and an 8-bit overlay, makes a window for each from the
+ * answer (the overlay's a child of the normal one), links them and draws in
+ * both with GLXwinset. The overlay is a window in the overlay visual whose
+ * pixels are the indices drawn, in the colours of the colormap the answer
+ * named.
+ */
+static void
+t_glx_mixed(void)
+{
+	GLXconfig want[] = {
+		{ GLX_NORMAL, GLX_RGB, TRUE },
+		{ GLX_NORMAL, GLX_DOUBLE, FALSE },
+		{ GLX_OVERLAY, GLX_BUFSIZE, 8 },
+		{ 0, 0, 0 }
+	};
+	GLXconfig *conf, *c;
+	Display *d;
+	XSetWindowAttributes swa;
+	XVisualInfo tmpl, *nvi = NULL, *ovi = NULL;
+	Colormap ncmap = None, ocmap = None;
+	Window nwin, owin;
+	XImage *im;
+	short r, g, b;
+	int n;
+	char what[96];
+
+	if (getgdesc(GD_BITS_OVER_SNG_CMODE) <= 0 || (d = XOpenDisplay(NULL)) == NULL) {
+		printf("=    no overlay planes: the mixed-model checks are skipped\n");
+		return;
+	}
+	conf = GLXgetconfig(d, DefaultScreen(d), want);
+	check("GLXgetconfig answers", conf != NULL);
+	if (conf == NULL)
+		return;
+	for (c = conf; c->buffer; c++) {
+		if (c->mode == GLX_VISUAL) {
+			tmpl.visualid = (VisualID)c->arg;
+			if (c->buffer == GLX_NORMAL)
+				nvi = XGetVisualInfo(d, VisualIDMask, &tmpl, &n);
+			else if (c->buffer == GLX_OVERLAY && c->arg)
+				ovi = XGetVisualInfo(d, VisualIDMask, &tmpl, &n);
+		}
+		if (c->mode == GLX_COLORMAP && c->buffer == GLX_NORMAL)
+			ncmap = (Colormap)c->arg;
+		if (c->mode == GLX_COLORMAP && c->buffer == GLX_OVERLAY)
+			ocmap = (Colormap)c->arg;
+	}
+	check("the overlay's visual is 8 bits of colour index", ovi != NULL && ovi->depth == 8 && ovi->class == PseudoColor);
+	if (nvi == NULL || ovi == NULL) {
+		XCloseDisplay(d);
+		return;
+	}
+	swa.colormap = ncmap;
+	swa.border_pixel = 0;
+	nwin = XCreateWindow(d, RootWindow(d, nvi->screen), 0, 0, W, H, 0, nvi->depth, InputOutput,
+	    nvi->visual, CWColormap | CWBorderPixel, &swa);
+	XStoreName(d, nwin, "irisgltest mixed");
+	swa.colormap = ocmap;
+	swa.background_pixel = 0;
+	owin = XCreateWindow(d, nwin, 0, 0, W, H, 0, ovi->depth, InputOutput, ovi->visual,
+	    CWColormap | CWBorderPixel | CWBackPixel, &swa);
+	XMapWindow(d, owin);
+	XMapWindow(d, nwin);
+	XSync(d, False);
+	sleep(1);
+	for (c = conf; c->buffer; c++)
+		if (c->mode == GLX_WINDOW)
+			c->arg = c->buffer == GLX_NORMAL ? (int)nwin : c->buffer == GLX_OVERLAY ? (int)owin : 0;
+	check("GLXlink", GLXlink(d, conf) == GLWS_NOERROR);
+
+	check("GLXwinset the normal window", GLXwinset(d, nwin) == GLWS_NOERROR);
+	pixel_ortho(0);
+	cpack(C_RED);
+	clear();
+	gflush();
+
+	check("GLXwinset the overlay window", GLXwinset(d, owin) == GLWS_NOERROR);
+	pixel_ortho(0);
+	mapcolor(3, 0, 0, 255);
+	getmcolor(3, &r, &g, &b);
+	sprintf(what, "mapcolor in the overlay, read back (%d %d %d)", r, g, b);
+	check(what, r == 0 && g == 0 && b == 255);
+	color(0);
+	clear();
+	color(3);
+	rectf(8, 8, 23, 23);
+	gflush();
+	XSync(d, False);
+	im = XGetImage(d, owin, 0, 0, W, H, AllPlanes, ZPixmap);
+	if (im != NULL) {
+		unsigned long in = XGetPixel(im, 15, H - 1 - 15), out = XGetPixel(im, 40, H - 1 - 40);
+
+		sprintf(what, "the overlay window holds index 3 in the rectangle, 0 around it (%lu, %lu)", in, out);
+		check(what, in == 3 && out == 0);
+		XDestroyImage(im);
+	} else {
+		check("XGetImage of the overlay window", 0);
+	}
+	GLXwinset(d, nwin);
+	check("the normal window keeps its own pixels", pix(15, 15) == C_RED);
+	GLXunlink(d, owin);
+	GLXunlink(d, nwin);
+	XDestroyWindow(d, nwin);
+	XCloseDisplay(d);
+}
+
+/*
+ * A colour-index program's normal planes in the GLX mixed model: IMPACT's
+ * 12-bit colour-index visual, whose pixels are the indices drawn -- all 12
+ * bits of them -- in the colours of its colormap.
+ */
+static void
+t_glx_cmode(void)
+{
+	GLXconfig want[] = {
+		{ GLX_NORMAL, GLX_DOUBLE, FALSE },
+		{ 0, 0, 0 }
+	};
+	GLXconfig *conf, *c;
+	Display *d;
+	XSetWindowAttributes swa;
+	XVisualInfo tmpl, *vi = NULL;
+	Colormap cmap = None;
+	Window win;
+	XImage *im;
+	short r, g, b;
+	int n;
+	char what[96];
+
+	if ((d = XOpenDisplay(NULL)) == NULL)
+		return;
+	conf = GLXgetconfig(d, DefaultScreen(d), want);
+	for (c = conf; c != NULL && c->buffer; c++) {
+		if (c->buffer == GLX_NORMAL && c->mode == GLX_VISUAL) {
+			tmpl.visualid = (VisualID)c->arg;
+			vi = XGetVisualInfo(d, VisualIDMask, &tmpl, &n);
+		}
+		if (c->buffer == GLX_NORMAL && c->mode == GLX_COLORMAP)
+			cmap = (Colormap)c->arg;
+	}
+	if (vi == NULL || vi->class != PseudoColor) {
+		printf("=    colour-index GLX windows are not colour-map windows here: skipped\n");
+		XCloseDisplay(d);
+		return;
+	}
+	check("a colour-index GLX window is 12 bits deep", vi->depth == 12);
+	swa.colormap = cmap;
+	swa.border_pixel = 0;
+	win = XCreateWindow(d, RootWindow(d, vi->screen), 0, 0, W, H, 0, vi->depth, InputOutput,
+	    vi->visual, CWColormap | CWBorderPixel, &swa);
+	XStoreName(d, win, "irisgltest cmode");
+	XMapWindow(d, win);
+	XSync(d, False);
+	sleep(1);
+	for (c = conf; c->buffer; c++)
+		if (c->mode == GLX_WINDOW)
+			c->arg = c->buffer == GLX_NORMAL ? (int)win : 0;
+	check("GLXlink the colour-index window", GLXlink(d, conf) == GLWS_NOERROR);
+	GLXwinset(d, win);
+	pixel_ortho(0);
+	mapcolor(1000, 255, 128, 0);
+	getmcolor(1000, &r, &g, &b);
+	sprintf(what, "mapcolor 1000 in its colormap, read back (%d %d %d)", r, g, b);
+	check(what, r == 255 && g == 128 && b == 0);
+	color(7);
+	clear();
+	color(1000);
+	rectf(8, 8, 23, 23);
+	gflush();
+	XSync(d, False);
+	im = XGetImage(d, win, 0, 0, W, H, AllPlanes, ZPixmap);
+	if (im != NULL) {
+		unsigned long in = XGetPixel(im, 15, H - 1 - 15), out = XGetPixel(im, 40, H - 1 - 40);
+
+		sprintf(what, "its pixels are the indices: 1000 in the rectangle, 7 around it (%lu, %lu)", in, out);
+		check(what, in == 1000 && out == 7);
+		XDestroyImage(im);
+	} else {
+		check("XGetImage of the colour-index window", 0);
+	}
+	GLXunlink(d, win);
+	XDestroyWindow(d, win);
+	XCloseDisplay(d);
+}
+
+int
+main(void)
+{
+	foreground();
+	t_window();
+	t_gdesc();
+	t_clear_rect();
+	t_cmode();
+	t_matrix();
+	t_perspective();
+	t_zbuffer();
+	t_backface();
+	t_front();
+	t_pixels();
+	t_text();
+	t_objects();
+	t_queue();
+	t_lighting();
+	t_blend();
+	t_texture();
+	t_nurbs();
+	t_layers();
+	t_glx_mixed();
+	t_glx_cmode();
+	printf("%s\n", failures ? "irisgltest: FAILED" : "irisgltest: all ok");
+	return failures != 0;
+}

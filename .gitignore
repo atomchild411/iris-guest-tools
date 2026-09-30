@@ -1,0 +1,4 @@
+# Build output, including what is made from the build host's SGI headers
+# (build/gl/gen, build/gl/cross-include), which must never be committed.
+/build/
+__pycache__/

@@ -18,9 +18,17 @@ is not available and draw nothing.
 You need:
 
 - **IRIS with host GL.** It is not in IRIS's release builds yet: build IRIS
-  on a Mac with the `hostgl` feature, e.g.
-  `cargo build --release --features hostgl` (add `ip28,jitv2,tcache` for the
-  Indigo2 IMPACT R10000). Host GL uses Apple's OpenGL, so macOS only for now.
+  on a Mac (host GL uses Apple's OpenGL, so macOS only for now), from commit
+  `1a93808` (2026-09-30) or later, with `hostgl` (it brings `hostcall` with
+  it) and whatever the machine you emulate wants:
+
+  | IRIX machine | `cargo build --release --features ...` | notes |
+  |---|---|---|
+  | any | `hostgl` | the minimum: GL frames go back to the program, which puts them up through X |
+  | Indigo2 IMPACT R10000 (IP28) | `hostgl,ip28,jitv2,tcache` | `ip28` is the machine; `jitv2` the JIT, `tcache` its fast loads and stores on the R10000; frames composite straight into the IMPACT framebuffer |
+  | Indy, other Indigo2 | `hostgl` plus the usual speed features, e.g. `lightning,rex-jit` or `jitv2` | |
+
+  Add `chd` for CHD disk images. Tested so far on the IP28 with IMPACT.
 - **IRIX 6.5** running in it, with a desktop you can log in to.
 - **A release** from this repository's Releases page. Its `VERSION` names the
   host GL protocol it speaks and the IRIS that speaks it; the library checks

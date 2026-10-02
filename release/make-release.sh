@@ -6,7 +6,9 @@
 # (clang/build.sh build + check: LLVMBIN, SYSROOT and SGI must be set, see
 # clang/common.sh), and adds o32 libraries from a MIPSpro build when there is
 # one: MIPSPRO_GL_DIR is build.sh's gl output (default build/gl, if it holds
-# o32/). Output, in $WORK/release (WORK defaults to build/clang):
+# o32/). With COMPILER=mipspro, n32 comes from that MIPSpro build too, and
+# the cross toolchain is not used: build.sh gl first. Output, in
+# $WORK/release (WORK defaults to build/clang):
 #
 #   iris-guest-tools-DATE-protoN.tgz         the release, rooted at its own
 #                                            directory: install.sh, README.txt,
@@ -49,18 +51,32 @@ proto=$(awk '$1 == "#define" && $2 == "HGL_PROTOCOL" { print $3 }' gl/glshim.h)
 [ -n "$proto" ] || { echo "make-release.sh: no HGL_PROTOCOL in gl/glshim.h" >&2; exit 1; }
 name=iris-guest-tools-$date-proto$proto$dirty
 
-sh "$GT/clang/build.sh" build
-sh "$GT/clang/build.sh" check
-
 out=$WORK/release
 stage=$out/$name
 rm -rf "$stage" "$out/$name.tgz" "$out/$name.tgz.sha256"
 mkdir -p "$stage/n32" "$stage/bin/n32"
-B=$WORK/build/iris-tools
-cp "$B/lib/libglshim.so" "$B/lib/libirisgl.so" "$stage/n32/"
-for t in glcheck gltest glbench gloverlay irisgltest hostcall_test; do
-	cp "$B/bin/$t" "$stage/bin/n32/"
-done
+case "${COMPILER:-clang}" in
+clang)
+	sh "$GT/clang/build.sh" build
+	sh "$GT/clang/build.sh" check
+	B=$WORK/build/iris-tools
+	cp "$B/lib/libglshim.so" "$B/lib/libirisgl.so" "$stage/n32/"
+	for t in glcheck gltest glbench gloverlay irisgltest hostcall_test; do
+		cp "$B/bin/$t" "$stage/bin/n32/"
+	done
+	compiled="clang (LLVM cross toolchain) for n32"
+	;;
+mipspro)
+	[ -f "$MIPSPRO/n32/libglshim.so" ] && [ -f "$MIPSPRO/o32/libglshim.so" ] || {
+		echo "make-release.sh: no MIPSpro build in $MIPSPRO (./build.sh gl)" >&2; exit 1; }
+	cp "$MIPSPRO/n32/libglshim.so" "$MIPSPRO/n32/libirisgl.so" "$stage/n32/"
+	for t in glcheck gltest glbench gloverlay irisgltest; do
+		cp "$MIPSPRO/n32/$t" "$stage/bin/n32/"
+	done
+	compiled="MIPSpro 7.4 for n32"
+	;;
+*) echo "make-release.sh: COMPILER is clang or mipspro" >&2; exit 1 ;;
+esac
 abis=n32
 if [ -f "$MIPSPRO/o32/libglshim.so" ] && [ -f "$MIPSPRO/o32/libirisgl.so" ]; then
 	mkdir -p "$stage/o32" "$stage/bin/o32"
@@ -69,11 +85,13 @@ if [ -f "$MIPSPRO/o32/libglshim.so" ] && [ -f "$MIPSPRO/o32/libirisgl.so" ]; the
 		[ -f "$MIPSPRO/o32/$t" ] && cp "$MIPSPRO/o32/$t" "$stage/bin/o32/"
 	done
 	abis="n32 o32"
+	compiled="$compiled, MIPSpro 7.4 for o32"
 fi
 cp "$HERE/install.sh" "$HERE/README.txt" "$GT/LICENSE" "$stage/"
 cat > "$stage/VERSION" <<EOF
 iris-guest-tools $date (git $rev$dirty), https://github.com/atomchild411/iris-guest-tools
 ABIs:              $abis
+compiled with:     $compiled
 host GL protocol:  $proto
 needs:             $(iris_for "$proto")
 EOF

@@ -1243,6 +1243,7 @@ getgconfig(long buffer)
 	TRACE("getgconfig");
 	switch (buffer) {
 	case GC_BITS_ZBUFFER:  return hgl_iris.want_zbuf ? 24 : 0;
+	case GC_BITS_STENCIL:  return 8;	/* the host's framebuffer: depth 24, stencil 8 */
 	case GC_BITS_RED:
 	case GC_BITS_GREEN:
 	case GC_BITS_BLUE:
@@ -1285,6 +1286,8 @@ getgdesc(long inquiry)
 		return 12;
 	case GD_BITS_NORM_ZBUFFER:
 		return 24;
+	case GD_BITS_STENCIL:
+		return 8;	/* the host's framebuffer: depth 24, stencil 8 */
 	case GD_BITS_OVER_SNG_CMODE:
 		return hgl_overlay_bits(0);
 	case GD_BITS_PUP_SNG_CMODE:

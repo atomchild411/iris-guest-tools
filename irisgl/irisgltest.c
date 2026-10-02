@@ -128,6 +128,39 @@ t_gdesc(void)
 	check("getgdesc(GD_XPMAX) is the screen width", getgdesc(GD_XPMAX) > 0);
 	check("getgdesc(GD_ZMAX) is nonzero", getgdesc(GD_ZMAX) > 0);
 	check("getgdesc(GD_BITS_NORM_DBL_RED) >= 8", getgdesc(GD_BITS_NORM_DBL_RED) >= 8);
+	/* UroMan asks for one stencil plane, and turns capping off without it */
+	check("getgdesc(GD_BITS_STENCIL) >= 1", getgdesc(GD_BITS_STENCIL) >= 1);
+}
+
+/* The stencil planes: a rectangle marks them, and a clear of the whole
+ * window drawn where they are marked colours only that rectangle. */
+static void
+t_stencil(void)
+{
+	long gid, sbits;
+
+	prefsize(W, H);
+	gid = winopen("irisgltest stencil");
+	RGBmode();
+	stensize(1);
+	gconfig();
+	pixel_ortho(0);
+	sbits = getgconfig(GC_BITS_STENCIL);
+	check("getgconfig(GC_BITS_STENCIL) >= 1 after stensize(1)", sbits >= 1);
+	cpack(C_BLACK);
+	clear();
+	sclear(0);
+
+	stencil(TRUE, 1, SF_ALWAYS, 1, ST_KEEP, ST_REPLACE, ST_REPLACE);
+	cpack(C_RED);
+	rectfi(10, 10, 30, 30);
+	stencil(TRUE, 1, SF_EQUAL, 1, ST_KEEP, ST_KEEP, ST_KEEP);
+	cpack(C_GREEN);
+	rectfi(0, 0, W - 1, H - 1);
+	stencil(FALSE, 0, SF_ALWAYS, 0, ST_KEEP, ST_KEEP, ST_KEEP);
+	check("stencil: drawn inside the marked rectangle", pix(20, 20) == C_GREEN);
+	check("stencil: kept out of the rest", pix(45, 45) == C_BLACK);
+	winclose(gid);
 }
 
 static void
@@ -893,6 +926,7 @@ main(void)
 	t_matrix();
 	t_perspective();
 	t_zbuffer();
+	t_stencil();
 	t_backface();
 	t_front();
 	t_pixels();

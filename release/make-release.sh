@@ -10,7 +10,8 @@
 # the cross toolchain is not used: build.sh gl first. Output, in
 # $WORK/release (WORK defaults to build/clang):
 #
-#   iris-guest-tools-DATE-protoN.tgz         the release, rooted at its own
+#   iris-guest-tools-DATE-protoN.tgz         the release (DATE.SERIAL with
+#                                            SERIAL=n, for a second that day), rooted at its own
 #                                            directory: install.sh, README.txt,
 #                                            VERSION, LICENSE, n32/ [o32/], bin/
 #   iris-guest-tools-DATE-protoN.tgz.sha256
@@ -49,6 +50,8 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
 fi
 proto=$(awk '$1 == "#define" && $2 == "HGL_PROTOCOL" { print $3 }' gl/glshim.h)
 [ -n "$proto" ] || { echo "make-release.sh: no HGL_PROTOCOL in gl/glshim.h" >&2; exit 1; }
+# A second release on the same day: SERIAL=2 names it DATE.2.
+[ -n "${SERIAL:-}" ] && date=$date.$SERIAL
 name=iris-guest-tools-$date-proto$proto$dirty
 
 out=$WORK/release

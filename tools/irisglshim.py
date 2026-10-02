@@ -122,6 +122,10 @@ HANDWRITTEN = {
     "t4d", "t4f", "t4i", "t4s", "textcolor", "textinit", "textport", "tpoff", "tpon", "v2d",
     "v3d", "v3i", "v3s", "v4d", "v4i", "v4s", "videocmd", "window", "winmove", "winpush",
     "wmpack", "writemask", "zwritemask",
+    # --- picking and selecting (irisgl_extra.c): UroMan picks its organs ---
+    "pick", "endpick", "gselect", "endselect", "picksize",
+    "blendcolor",
+    "initnames", "loadname", "pushname", "popname",
     # --- NURBS curves and surfaces, through GLU (irisgl_nurbs.c): powerflip ---
     "bgnsurface", "endsurface", "nurbssurface", "bgntrim", "endtrim", "pwlcurve",
     "nurbscurve", "bgncurve", "endcurve", "setnurbsproperty", "getnurbsproperty",

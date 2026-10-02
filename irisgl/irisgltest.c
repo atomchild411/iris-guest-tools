@@ -572,6 +572,280 @@ t_lighting(void)
 	winclose(gid);
 }
 
+/* A rectangle from (10,10) to (50,50) at depth z, in the colour set before. */
+static void
+quad_z(float z)
+{
+	pmv(10, 10, z); pdr(50, 10, z); pdr(50, 50, z); pdr(10, 50, z); pclos();
+}
+
+/* zfunction's default, and what czclear and zclear touch. */
+static void
+t_zclear(void)
+{
+	long gid;
+	unsigned long p;
+	char what[96];
+
+	prefsize(W, H);
+	gid = winopen("irisgltest zclear");
+	RGBmode();
+	gconfig();
+	pixel_ortho(1);
+	zbuffer(TRUE);
+
+	/* ZF_LEQUAL by default (zfunction(3G)): a second pass at the same
+	 * depth draws over the first */
+	czclear(C_BLACK, getgdesc(GD_ZMAX));
+	cpack(C_RED);
+	quad_z(0.0f);
+	cpack(C_GREEN);
+	quad_z(0.0f);
+	p = pix(30, 30);
+	sprintf(what, "the z test passes equal depths: %06lx", p);
+	check(what, p == C_GREEN);
+
+	/* czclear leaves the current colour alone */
+	cpack(C_RED);
+	czclear(C_BLUE, getgdesc(GD_ZMAX));
+	p = pix(5, 5);
+	sprintf(what, "czclear clears to its colour: %06lx", p);
+	check(what, p == C_BLUE);
+	quad_z(0.0f);
+	p = pix(30, 30);
+	sprintf(what, "... and the current colour is still red: %06lx", p);
+	check(what, p == C_RED);
+
+	/* ... and ignores the writemask */
+	wmpack(0);
+	czclear(C_GREEN, getgdesc(GD_ZMAX));
+	wmpack(0xffffffffUL);
+	p = pix(5, 5);
+	sprintf(what, "czclear ignores wmpack(0): %06lx", p);
+	check(what, p == C_GREEN);
+
+	/* zclear clears to the far end, whatever czclear last used */
+	czclear(C_BLACK, 0);
+	zclear();
+	cpack(C_RED);
+	quad_z(0.5f);
+	p = pix(30, 30);
+	sprintf(what, "zclear after czclear(c, 0) clears to the far end: %06lx", p);
+	check(what, p == C_RED);
+
+	/* pushattributes does not save the z-buffer's state */
+	zbuffer(FALSE);
+	pushattributes();
+	zbuffer(TRUE);
+	popattributes();
+	check("pushattributes; zbuffer(TRUE); popattributes leaves it on", getzbuffer() == TRUE);
+	zbuffer(FALSE);
+	winclose(gid);
+}
+
+/* lmdef(3G): a SHININESS of 0 turns specular reflection off. */
+static void
+t_shininess(void)
+{
+	static float mat[] = { DIFFUSE, 0.0f, 0.0f, 0.0f, SPECULAR, 1.0f, 1.0f, 1.0f,
+	    SHININESS, 0.0f, LMNULL };
+	static float light[] = { LCOLOR, 1.0f, 1.0f, 1.0f, POSITION, 0.0f, 0.0f, 1.0f, 0.0f, LMNULL };
+	static float model[] = { LMNULL };
+	static float n[3] = { 0, 0, 1 };
+	static float v[4][3] = { { 10, 10, 0 }, { 50, 10, 0 }, { 50, 50, 0 }, { 10, 50, 0 } };
+	long gid = rgb_window("irisgltest shininess");
+	unsigned long p;
+	char what[96];
+	int i;
+
+	mmode(MVIEWING);
+	pixel_ortho(1);
+	loadmatrix(identity);
+	lmdef(DEFMATERIAL, 3, 11, mat);
+	lmdef(DEFLIGHT, 3, 10, light);
+	lmdef(DEFLMODEL, 3, 1, model);
+	lmbind(MATERIAL, 3);
+	lmbind(LIGHT0, 3);
+	lmbind(LMODEL, 3);
+	bgnpolygon();
+	for (i = 0; i < 4; i++) {
+		n3f(n);
+		v3f(v[i]);
+	}
+	endpolygon();
+	p = pix(30, 30);
+	sprintf(what, "SHININESS 0 adds no specular: %06lx", p);
+	check(what, chan(p, 0) < 80 && chan(p, 8) < 80 && chan(p, 16) < 80);
+
+	/* the colour characters take is the current colour, not lit */
+	cpack(C_BLACK);
+	clear();
+	cpack(C_GREEN);
+	cmov2i(10, 20);
+	charstr("W");
+	{
+		unsigned long area[20 * 16];
+		int green = 0, other = 0;
+		lrectread(8, 16, 27, 31, area);
+		for (i = 0; i < 20 * 16; i++) {
+			unsigned long c = area[i] & 0xffffffUL;
+			if (c == C_GREEN)
+				green++;
+			else if (c != C_BLACK)
+				other++;
+		}
+		sprintf(what, "text under lighting is the current colour: %d green, %d other", green, other);
+		check(what, green > 4 && other == 0);
+	}
+	lmbind(MATERIAL, 0);
+	mmode(MSINGLE);
+	winclose(gid);
+}
+
+/* A red rectangle with texture coordinates over the texture. */
+static void
+textured_quad(void)
+{
+	static float t[4][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+	static float v[4][2] = { { 10, 10 }, { 50, 10 }, { 50, 50 }, { 10, 50 } };
+	int i;
+
+	cpack(C_RED);
+	bgnpolygon();
+	for (i = 0; i < 4; i++) {
+		t2f(t[i]);
+		v2f(v[i]);
+	}
+	endpolygon();
+}
+
+/* Texturing needs both bindings (texbind(3G), tevbind(3G)); tevdef's
+ * environments. */
+static void
+t_texenv(void)
+{
+	static unsigned long green[4] = { 0xff00ff00UL, 0xff00ff00UL, 0xff00ff00UL, 0xff00ff00UL };
+	static float tprops[] = { TX_MINFILTER, TX_POINT, TX_NULL };
+	static float modulate[] = { TV_MODULATE, TV_NULL };
+	static float decal[] = { TV_DECAL, TV_NULL };
+	long gid = rgb_window("irisgltest texenv");
+	unsigned long p;
+	char what[96];
+
+	texdef2d(2, 4, 2, 2, green, 3, tprops);
+	tevdef(2, 2, modulate);
+	tevdef(3, 2, decal);
+	tevbind(TV_ENV0, 0);
+	texbind(TX_TEXTURE_0, 2);
+	textured_quad();
+	p = pix(30, 30);
+	sprintf(what, "a texture bound with no environment does not texture: %06lx", p);
+	check(what, p == C_RED);
+
+	tevbind(TV_ENV0, 2);
+	textured_quad();
+	p = pix(30, 30);
+	sprintf(what, "... TV_MODULATE: green modulating red is black: %06lx", p);
+	check(what, p == C_BLACK);
+
+	tevbind(TV_ENV0, 3);
+	textured_quad();
+	p = pix(30, 30);
+	sprintf(what, "... TV_DECAL: the texture's green: %06lx", p);
+	check(what, p == C_GREEN);
+
+	tevbind(TV_ENV0, 0);
+	textured_quad();
+	p = pix(30, 30);
+	sprintf(what, "... tevbind(TV_ENV0, 0) turns texturing off: %06lx", p);
+	check(what, p == C_RED);
+	texbind(TX_TEXTURE_0, 0);
+	winclose(gid);
+}
+
+/* mmode(3G): entering MSINGLE makes every matrix the identity. */
+static void
+t_mmode_single(void)
+{
+	long gid = rgb_window("irisgltest mmode");
+	Matrix m;
+	int i, j, same = 1;
+
+	mmode(MVIEWING);
+	translate(5.0f, 0.0f, 0.0f);
+	mmode(MSINGLE);
+	getmatrix(m);
+	for (i = 0; i < 4; i++)
+		for (j = 0; j < 4; j++)
+			if (m[i][j] != identity[i][j])
+				same = 0;
+	check("entering MSINGLE resets the matrix to the identity", same);
+	winclose(gid);
+}
+
+/* gselect: drawing in the region records the name stack; nothing is
+ * drawn. */
+static void
+t_select(void)
+{
+	long gid = rgb_window("irisgltest select");
+	short buf[50];
+	long n;
+	unsigned long p;
+	char what[96];
+
+	mmode(MVIEWING);
+	ortho2(0.0f, 10.0f, 0.0f, 10.0f);	/* the selecting region */
+	initnames();
+	gselect(buf, 50);
+	loadname(7);
+	rectfi(2, 2, 4, 4);
+	loadname(8);
+	rectfi(20, 20, 30, 30);
+	n = endselect(buf);
+	sprintf(what, "gselect: one hit, named 7: %ld (%d %d)", n, buf[0], buf[1]);
+	check(what, n == 1 && buf[0] == 1 && buf[1] == 7);
+	mmode(MSINGLE);
+	pixel_ortho(0);
+	p = pix(3, 3);
+	sprintf(what, "... and nothing was drawn: %06lx", p);
+	check(what, p == C_BLACK);
+	winclose(gid);
+}
+
+/* blendfunction's destination factor 2 is the *source* colour (BF_SC), and
+ * the last of blendfunction and logicop wins. */
+static void
+t_blendfactors(void)
+{
+	long gid = rgb_window("irisgltest blendfactors");
+	unsigned long p;
+	char what[96];
+
+	cpack(0xffffffUL);
+	clear();
+	blendfunction(BF_ZERO, BF_SC);
+	cpack(C_RED);
+	rectfi(10, 10, 50, 50);
+	blendfunction(BF_ONE, BF_ZERO);
+	p = pix(30, 30);
+	sprintf(what, "blendfunction(BF_ZERO, BF_SC) over white is the source: %06lx", p);
+	check(what, p == C_RED);
+
+	cpack(C_RED);
+	clear();
+	logicop(LO_XOR);
+	blendfunction(BF_SA, BF_MSA);
+	cpack(0xff0000ffUL);
+	rectfi(10, 10, 50, 50);
+	blendfunction(BF_ONE, BF_ZERO);
+	logicop(LO_SRC);
+	p = pix(30, 30);
+	sprintf(what, "a blendfunction after logicop turns the logic op off: %06lx", p);
+	check(what, p == C_RED);
+	winclose(gid);
+}
+
 static void
 t_blend(void)
 {
@@ -981,6 +1255,12 @@ main(void)
 	t_lighting();
 	t_blend();
 	t_texture();
+	t_zclear();
+	t_shininess();
+	t_texenv();
+	t_mmode_single();
+	t_select();
+	t_blendfactors();
 	t_nurbs();
 	t_layers();
 	t_glx_mixed();

@@ -302,6 +302,10 @@ hgl_window_defaults(void)
 	/* Lighting uses normals of unit length whatever the matrix does to them:
 	 * see nmode. */
 	glEnable(GL_NORMALIZE);
+	/* IRIS GL's depth test passes equal depths (zfunction(3G): ZF_LEQUAL);
+	 * OpenGL's starts as GL_LESS, which loses a second pass over the same
+	 * surface -- an outline over its faces, a highlight. */
+	glDepthFunc(GL_LEQUAL);
 	if (g->gid > 0 && g->gid < HGL_MAXWIN)
 		wins[g->gid].defaults_done = 1;
 }

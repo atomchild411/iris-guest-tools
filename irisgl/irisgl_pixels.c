@@ -760,5 +760,5 @@ lmcolor(long mode)
 	}
 }
 
-void cmovi(Icoord x, Icoord y, Icoord z) { hgl_iris_ensure(); glRasterPos3i(x, y, z); hgl_raster_serial = hgl_colour_serial; }
-void cmovs(Scoord x, Scoord y, Scoord z) { hgl_iris_ensure(); glRasterPos3s(x, y, z); hgl_raster_serial = hgl_colour_serial; }
+void cmovi(Icoord x, Icoord y, Icoord z) { hgl_iris_ensure(); hgl_rasterpos((float)x, (float)y, (float)z); hgl_raster_serial = hgl_colour_serial; }
+void cmovs(Scoord x, Scoord y, Scoord z) { hgl_iris_ensure(); hgl_rasterpos((float)x, (float)y, (float)z); hgl_raster_serial = hgl_colour_serial; }

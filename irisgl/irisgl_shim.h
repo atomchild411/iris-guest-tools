@@ -104,6 +104,9 @@ void hgl_iris_ensure(void);
  * (mmode(3G)). hgl_projection_begin makes the matrix they replace current and
  * clears it; hgl_projection_end makes the viewing matrix current again. */
 void hgl_projection_begin(void);
+/* Picking (1) or selecting (2): nothing is drawn; see pick in irisgl_extra.c. */
+extern int hgl_selecting;
+extern float hgl_pick_matrix[16];
 void hgl_projection_end(void);
 void hgl_iris_pump(int block);
 /* An X event someone else read (a popup menu), into the program's queue. */
@@ -173,6 +176,11 @@ void hgl_origin_known(void);
  */
 extern unsigned long hgl_colour_serial, hgl_raster_serial;
 void hgl_latch_raster_colour(void);
+/* glRasterPos3f, never lit (cmov). */
+void hgl_rasterpos(float x, float y, float z);
+/* linewidth and shademodel as last set (pushattributes saves them). */
+extern float hgl_line_width;
+extern long hgl_shade_model;
 void hgl_cmap_rgb(unsigned long index, unsigned char *rgb);
 /* The current colour, and the index color() last set. */
 void hgl_current_colour(float *rgba);

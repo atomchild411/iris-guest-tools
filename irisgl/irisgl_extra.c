@@ -977,9 +977,14 @@ logicop(long op)
 		glDisable(GL_COLOR_LOGIC_OP);
 		return;
 	}
-	/* LO_ZERO..LO_ONE run in the order of GL_CLEAR..GL_SET. */
+	/* LO_ZERO..LO_ONE run in the order of GL_CLEAR..GL_SET. Any op but
+	 * LO_SRC turns blending off (logicop(3G)): the last of the two wins. */
 	glLogicOp(GL_CLEAR + (GLenum)op);
 	glEnable(GL_COLOR_LOGIC_OP);
+	if (hgl_iris.blend) {
+		hgl_enable(GL_BLEND, 0);
+		hgl_iris.blend = 0;
+	}
 }
 
 void
@@ -990,7 +995,7 @@ polymode(long m)
 	    : m == PYM_LINE || m == PYM_HOLLOW || m == PYM_LINE_FAST ? GL_LINE : GL_FILL);
 }
 
-void linewidthf(float w) { hgl_iris_ensure(); glLineWidth(w > 0.0f ? w : 1.0f); }
+void linewidthf(float w) { hgl_iris_ensure(); hgl_line_width = w > 0.0f ? w : 1.0f; glLineWidth(hgl_line_width); }
 void smoothline(long on) { linesmooth((unsigned long)on); }
 void gsync(void) { hgl_iris_ensure(); glFinish(); }
 
@@ -1061,15 +1066,19 @@ sclear(unsigned long v)
 {
 	hgl_irisgl_tracef("sclear %lu", v);
 	hgl_iris_ensure();
+	if (hgl_selecting)
+		return;
 	glClearStencil((GLint)v);
 	glClear(GL_STENCIL_BUFFER_BIT);
 }
 
 /* ---- attributes ----
  *
- * pushattributes(3G) saves the colour, write masks, line style, pattern,
- * font and buffer choice; OpenGL's attribute stack holds most of it, and
- * what only this library knows goes on a stack beside it.
+ * pushattributes(3G) saves the colour (index and RGB), the write masks, line
+ * style, width and repeat, pattern, font, shade model and buffer choice --
+ * and nothing else. No OpenGL attribute group is that set: each of them also
+ * holds state IRIS GL leaves alone (zbuffer, lighting, blending), which
+ * popattributes would undo. So it is all kept here.
  */
 #define ATTRDEPTH 16
 static struct {
@@ -1077,6 +1086,8 @@ static struct {
 	long index, lstyle, pattern, font, lsrepeat;
 	GLboolean wm[4];
 	int front;
+	float linewidth;
+	long shade;
 } attrs[ATTRDEPTH];
 static int attrdepth;
 
@@ -1084,9 +1095,9 @@ void
 pushattributes(void)
 {
 	hgl_iris_ensure();
-	glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT | GL_POLYGON_STIPPLE_BIT | GL_POLYGON_BIT |
-	    GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_LIGHTING_BIT | GL_ENABLE_BIT);
 	if (attrdepth < ATTRDEPTH) {
+		attrs[attrdepth].linewidth = hgl_line_width;
+		attrs[attrdepth].shade = hgl_shade_model;
 		hgl_current_colour(attrs[attrdepth].colour);
 		attrs[attrdepth].index = hgl_colour_index;
 		attrs[attrdepth].lstyle = getlstyle();
@@ -1105,9 +1116,11 @@ popattributes(void)
 	hgl_iris_ensure();
 	if (attrdepth == 0)
 		return;
-	glPopAttrib();
 	if (--attrdepth < ATTRDEPTH) {
 		const float *c = attrs[attrdepth].colour;
+
+		linewidthf(attrs[attrdepth].linewidth);
+		shademodel(attrs[attrdepth].shade);
 		hgl_set_colour(c[0], c[1], c[2], c[3]);
 		hgl_colour_index = attrs[attrdepth].index;
 		lsrepeat(attrs[attrdepth].lsrepeat);
@@ -1270,3 +1283,176 @@ void setdblights(unsigned long m) { (void)m; }
 void lsbackup(Boolean b) { (void)b; }
 void resetls(Boolean b) { (void)b; }
 void chunksize(long n) { (void)n; }
+
+/* ---- picking and selecting ----
+ *
+ * GLPG-I chapter 12, pick(3G), gselect(3G). In either mode nothing is drawn;
+ * drawing that falls in the region is a hit, and a hit is recorded -- the
+ * name stack, as it was -- when the name stack next changes or the mode
+ * ends: one record per change, however many things hit. OpenGL's selection
+ * mode records exactly that way, so it does the work, and endpick repacks
+ * its records ([count, zmin, zmax, names...] in 32 bits) as IRIS GL's
+ * ([count, names...] in 16).
+ *
+ * pick also loads a matrix that makes a small square around the cursor fill
+ * the viewport; the program restates its projection after pick, which
+ * multiplies onto it (hgl_projection_begin). gselect uses the matrices as
+ * they are: their view volume is the region.
+ */
+#define NAMES_MAX 1000
+#define SELBUF 8192
+int hgl_selecting;		/* 1 picking, 2 selecting */
+float hgl_pick_matrix[16];
+static GLuint selbuf[SELBUF];
+static short names[NAMES_MAX];
+static int nnames;
+static long pick_w = 10, pick_h = 10;
+static long sel_max;
+
+/* OpenGL's name stack made the same as ours. Changing it records a hit if
+ * there was one since the last change, with the names as they were. */
+static void
+names_to_gl(void)
+{
+	int i;
+
+	if (!hgl_selecting)
+		return;
+	glInitNames();
+	for (i = 0; i < nnames; i++)
+		glPushName((GLuint)(unsigned short)names[i]);
+}
+
+static void
+select_begin(int mode, long numnames)
+{
+	hgl_iris_ensure();
+	sel_max = numnames;
+	glSelectBuffer(SELBUF, selbuf);
+	glRenderMode(GL_SELECT);
+	hgl_selecting = mode;
+	names_to_gl();
+}
+
+static long
+select_end(short buffer[])
+{
+	GLint hits, i, k;
+	long out = 0, stored = 0;
+	GLuint *p = selbuf;
+
+	if (!hgl_selecting)
+		return 0;
+	hits = glRenderMode(GL_RENDER);
+	hgl_selecting = 0;
+	if (hits < 0)
+		hits = SELBUF;		/* overflowed ours: what fitted */
+	for (i = 0; i < hits && p < selbuf + SELBUF; i++) {
+		GLuint n = p[0];
+		if (p + 3 + n > selbuf + SELBUF)
+			break;
+		if (out + 1 + (long)n > sel_max) {
+			hgl_irisgl_tracef("endpick: %ld of %d records fit", stored, (int)hits);
+			return -stored;
+		}
+		if (buffer != NULL) {
+			buffer[out] = (short)n;
+			for (k = 0; k < (GLint)n; k++)
+				buffer[out + 1 + k] = (short)p[3 + k];
+		}
+		out += 1 + n;
+		stored++;
+		p += 3 + n;
+	}
+	hgl_irisgl_tracef("endpick/endselect: %ld records", stored);
+	return stored;
+}
+
+void
+pick(short buffer[], long numnames)
+{
+	GLint vp[4];
+	long ox = 0, oy = 0;
+	float x, y, sx, sy;
+
+	(void)buffer;
+	hgl_iris_ensure();
+	glGetIntegerv(GL_VIEWPORT, vp);
+	getorigin(&ox, &oy);
+	/* the cursor in window coordinates, then gluPickMatrix's square */
+	x = (float)(hgl_iris.mousex - ox);
+	y = (float)(hgl_iris.mousey - oy);
+	hgl_irisgl_tracef("pick %ld at %g %g", numnames, x, y);
+	sx = (float)vp[2] / (float)pick_w;
+	sy = (float)vp[3] / (float)pick_h;
+	memset(hgl_pick_matrix, 0, sizeof hgl_pick_matrix);
+	hgl_pick_matrix[0] = sx;
+	hgl_pick_matrix[5] = sy;
+	hgl_pick_matrix[10] = 1.0f;
+	hgl_pick_matrix[12] = ((float)vp[2] - 2.0f * (x - (float)vp[0])) / (float)pick_w;
+	hgl_pick_matrix[13] = ((float)vp[3] - 2.0f * (y - (float)vp[1])) / (float)pick_h;
+	hgl_pick_matrix[15] = 1.0f;
+	select_begin(1, numnames);
+	hgl_projection_begin();
+	hgl_projection_end();
+}
+
+long
+endpick(short buffer[])
+{
+	return select_end(buffer);
+}
+
+void
+gselect(short buffer[], long numnames)
+{
+	(void)buffer;
+	hgl_irisgl_tracef("gselect %ld", numnames);
+	select_begin(2, numnames);
+}
+
+long
+endselect(short buffer[])
+{
+	return select_end(buffer);
+}
+
+void
+picksize(short w, short h)
+{
+	pick_w = w > 0 ? w : 1;
+	pick_h = h > 0 ? h : 1;
+}
+
+void
+initnames(void)
+{
+	nnames = 0;
+	names_to_gl();
+}
+
+/* loadname on an empty stack starts it */
+void
+loadname(short name)
+{
+	if (nnames == 0)
+		nnames = 1;
+	names[nnames - 1] = name;
+	names_to_gl();
+}
+
+void
+pushname(short name)
+{
+	if (nnames < NAMES_MAX)
+		names[nnames++] = name;
+	names_to_gl();
+}
+
+void
+popname(void)
+{
+	if (nnames > 0)
+		nnames--;
+	names_to_gl();
+}

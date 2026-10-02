@@ -363,10 +363,10 @@ long getlwidth(void)
 	return (long)(w + 0.5f);
 }
 
-void cmov(Coord x, Coord y, Coord z) { hgl_iris_ensure(); glRasterPos3f(x, y, z); hgl_raster_serial = hgl_colour_serial; }
-void cmov2(Coord x, Coord y) { hgl_iris_ensure(); glRasterPos2f(x, y); hgl_raster_serial = hgl_colour_serial; }
-void cmov2i(Icoord x, Icoord y) { hgl_iris_ensure(); glRasterPos2i(x, y); hgl_raster_serial = hgl_colour_serial; }
-void cmov2s(Scoord x, Scoord y) { hgl_iris_ensure(); glRasterPos2s(x, y); hgl_raster_serial = hgl_colour_serial; }
+void cmov(Coord x, Coord y, Coord z) { hgl_iris_ensure(); hgl_rasterpos(x, y, z); hgl_raster_serial = hgl_colour_serial; }
+void cmov2(Coord x, Coord y) { hgl_iris_ensure(); hgl_rasterpos(x, y, 0.0f); hgl_raster_serial = hgl_colour_serial; }
+void cmov2i(Icoord x, Icoord y) { hgl_iris_ensure(); hgl_rasterpos((float)x, (float)y, 0.0f); hgl_raster_serial = hgl_colour_serial; }
+void cmov2s(Scoord x, Scoord y) { hgl_iris_ensure(); hgl_rasterpos((float)x, (float)y, 0.0f); hgl_raster_serial = hgl_colour_serial; }
 
 /* In screen coordinates: "for purely historical reasons" (getcpos(3G)) the
  * window origin is added. */

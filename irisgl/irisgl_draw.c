@@ -51,6 +51,24 @@ hgl_current_colour(float *rgba)
 	rgba[3] = cur_a;
 }
 
+/* Whether GL_LIGHTING is on, as this library last set it; see hgl_begin. */
+static int prim_lit;
+
+/*
+ * The raster position, through the matrices like a vertex but never lit:
+ * the colour characters and pixels take is the current colour (cmov(3G)),
+ * and OpenGL would light it when GL_LIGHTING is on.
+ */
+void
+hgl_rasterpos(float x, float y, float z)
+{
+	if (prim_lit)
+		hgl_enable(GL_LIGHTING, 0);
+	glRasterPos3f(x, y, z);
+	if (prim_lit)
+		hgl_enable(GL_LIGHTING, 1);
+}
+
 /* The index color() last set, for getcolor. */
 long hgl_colour_index;
 
@@ -79,7 +97,7 @@ hgl_latch_raster_colour(void)
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
 	glLoadIdentity();
-	glRasterPos3f(p[0], p[1], 1.0f - 2.0f * p[2]);
+	hgl_rasterpos(p[0], p[1], 1.0f - 2.0f * p[2]);
 	glMatrixMode(GL_MODELVIEW);
 	glPopMatrix();
 	glMatrixMode(GL_PROJECTION);
@@ -92,6 +110,8 @@ clear(void)
 {
 	TRACE("clear");
 	hgl_iris_ensure();
+	if (hgl_selecting)
+		return;
 	glClearColor(cur_r, cur_g, cur_b, cur_a);
 	glClear(GL_COLOR_BUFFER_BIT);
 }
@@ -101,6 +121,10 @@ zclear(void)
 {
 	TRACE("zclear");
 	hgl_iris_ensure();
+	if (hgl_selecting)
+		return;
+	/* always to the far end (zclear(3G)), whatever czclear last used */
+	glClearDepth(1.0);
 	glClear(GL_DEPTH_BUFFER_BIT);
 }
 
@@ -175,15 +199,22 @@ mmode(short m)
 	TRACE("mmode");
 	hgl_iris_ensure();
 	/*
-	 * MSINGLE keeps its one matrix in the modelview stack. Leaving it for
-	 * the projection/viewing pair, both matrices start again from identity:
-	 * mmode(3G) leaves them undefined, and a leftover ortho2 from the
-	 * window's defaults would otherwise multiply into the program's view.
+	 * MSINGLE keeps its one matrix in the modelview stack. Entering or
+	 * leaving it empties the stacks and makes every matrix the identity
+	 * (mmode(3G)): a 2-D overlay drawn in MSINGLE after a 3-D view would
+	 * otherwise go through the old perspective.
 	 */
-	if (hgl_iris.mmode == MSINGLE && m != MSINGLE) {
+	if ((hgl_iris.mmode == MSINGLE) != (m == MSINGLE)) {
+		GLint depth = 1;
+
 		glMatrixMode(GL_PROJECTION);
 		glLoadIdentity();
+		glMatrixMode(GL_TEXTURE);
+		glLoadIdentity();
 		glMatrixMode(GL_MODELVIEW);
+		glGetIntegerv(GL_MODELVIEW_STACK_DEPTH, &depth);
+		while (depth-- > 1)
+			glPopMatrix();
 		glLoadIdentity();
 	}
 	hgl_iris.mmode = m;
@@ -201,9 +232,15 @@ void
 hgl_projection_begin(void)
 {
 	hgl_iris_ensure();
-	if (hgl_iris.mmode == MVIEWING)
+	/* ortho, perspective and window replace the Projection matrix in
+	 * every multi-matrix mode, MTEXTURE included */
+	if (hgl_iris.mmode == MVIEWING || hgl_iris.mmode == MTEXTURE)
 		glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
+	/* while picking, the projection is restated onto the pick matrix */
+	if (hgl_selecting == 1)
+		glLoadMatrixf(hgl_pick_matrix);
+	else
+		glLoadIdentity();
 }
 
 void
@@ -211,6 +248,8 @@ hgl_projection_end(void)
 {
 	if (hgl_iris.mmode == MVIEWING)
 		glMatrixMode(GL_MODELVIEW);
+	else if (hgl_iris.mmode == MTEXTURE)
+		glMatrixMode(GL_TEXTURE);
 }
 
 /*
@@ -423,8 +462,7 @@ lighting_wanted(void)
 	return bound_material && bound_lmodel && !(colour_last && hgl_lmcolor_mode == LMC_COLOR);
 }
 
-/* What the primitive being drawn was begun with, and as what. */
-static int prim_lit;
+/* What the primitive being drawn was begun as. */
 static GLenum prim_mode;
 
 static void
@@ -587,7 +625,13 @@ apply_material(GLenum face, short index)
 	/* ALPHA is the alpha of the lit colour: OpenGL takes it from diffuse. */
 	set4(d, m->diffuse[0], m->diffuse[1], m->diffuse[2], m->alpha);
 	glMaterialfv(face, GL_DIFFUSE, d);
-	glMaterialfv(face, GL_SPECULAR, m->specular);
+	/* A SHININESS of 0 turns the specular term off in IRIS GL (lmdef(3G));
+	 * in OpenGL it is the widest highlight there is. */
+	if (m->shininess <= 0.0f) {
+		set4(d, 0.0f, 0.0f, 0.0f, m->specular[3]);
+		glMaterialfv(face, GL_SPECULAR, d);
+	} else
+		glMaterialfv(face, GL_SPECULAR, m->specular);
 	glMaterialf(face, GL_SHININESS, m->shininess > 128 ? 128 : m->shininess);
 }
 
@@ -687,6 +731,12 @@ lmbind(short target, short index)
 /* By number, as the lighting definitions are (def_slot). */
 static long tex_ids[MAXDEF];
 static GLuint texnames[MAXDEF];
+/*
+ * Texturing is on only while both a texture and a texture environment are
+ * bound (texbind(3G), tevbind(3G)): binding 0 to either turns it off, and
+ * both start unbound.
+ */
+static int tex_bound, tev_bound;
 
 /*
  * What props says about the texture: wrap modes, filters, and whether the
@@ -828,6 +878,23 @@ texdef2d(long index, long nc, long width, long height,
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)width, (GLsizei)height, 0,
 	    GL_RGBA, GL_UNSIGNED_BYTE, buf);
 	free(buf);
+	/* defining a texture does not bind it */
+	glBindTexture(GL_TEXTURE_2D, tex_bound ? texnames[tex_bound] : 0);
+}
+
+
+/* The environments tevdef made: how texture values meet the incoming colour,
+ * and TV_BLEND's constant colour, which starts white (tevdef(3G)). */
+static long tev_ids[MAXDEF];
+static struct {
+	GLint mode;
+	float colour[4];
+} tevs[MAXDEF];
+
+static void
+update_texturing(void)
+{
+	hgl_enable(GL_TEXTURE_2D, tex_bound && texnames[tex_bound] && tev_bound);
 }
 
 void
@@ -835,22 +902,54 @@ texbind(long target, long index)
 {
 	hgl_irisgl_tracef("texbind %ld %ld", target, index);
 	hgl_iris_ensure();
-	(void)target;
-	index = def_slot(tex_ids, index, 0);
-	if (index == 0 || !texnames[index]) {
-		hgl_enable(GL_TEXTURE_2D, 0);
+	if (target != TX_TEXTURE_0)
 		return;
-	}
-	glBindTexture(GL_TEXTURE_2D, texnames[index]);
-	hgl_enable(GL_TEXTURE_2D, 1);
+	tex_bound = def_slot(tex_ids, index, 0);
+	if (tex_bound && texnames[tex_bound])
+		glBindTexture(GL_TEXTURE_2D, texnames[tex_bound]);
+	update_texturing();
 }
 
+/*
+ * The arithmetic of TV_MODULATE, TV_DECAL and TV_BLEND is OpenGL's
+ * GL_MODULATE, GL_DECAL and GL_BLEND exactly, given that every texture is
+ * kept as RGBA with an alpha of 1 where the image has none (see texdef2d).
+ * TV_ALPHA, TV_SHADOW and the component selects are not on IMPACT; they
+ * modulate.
+ */
 void
 tevdef(long index, long np, const float props[])
 {
-	(void)index; (void)np; (void)props;
-	/* The only environment a program can define is modulate/decal/blend,
-	 * and tevbind applies it; nothing needs keeping until then. */
+	long i = 0;
+	int slot;
+
+	hgl_irisgl_tracef("tevdef %ld np %ld", index, np);
+	if ((slot = def_slot(tev_ids, index, 1)) == 0)
+		return;
+	tevs[slot].mode = GL_MODULATE;
+	set4(tevs[slot].colour, 1.0f, 1.0f, 1.0f, 1.0f);
+	while (props != NULL && (np <= 0 || i < np) && (long)props[i] != TV_NULL) {
+		switch ((long)props[i++]) {
+		case TV_MODULATE: tevs[slot].mode = GL_MODULATE; break;
+		case TV_DECAL: tevs[slot].mode = GL_DECAL; break;
+		case TV_BLEND: tevs[slot].mode = GL_BLEND; break;
+		case TV_COLOR:
+			set4(tevs[slot].colour, props[i], props[i + 1], props[i + 2], props[i + 3]);
+			i += 4;
+			break;
+		case TV_ALPHA: case TV_SHADOW:
+		case TV_I_GETS_R: case TV_I_GETS_G: case TV_I_GETS_B: case TV_I_GETS_A:
+		case TV_IA_GETS_RG: case TV_IA_GETS_BA: case TV_I_GETS_I:
+			break;
+		case TV_COMPONENT_SELECT:
+			i++;
+			break;
+		default:
+			i = np > 0 ? np : i;
+			props = NULL;	/* a symbol whose values are unknown ends the walk */
+			break;
+		}
+	}
 }
 
 void
@@ -858,32 +957,58 @@ tevbind(long target, long index)
 {
 	hgl_irisgl_tracef("tevbind %ld %ld", target, index);
 	hgl_iris_ensure();
-	(void)target;
-	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, index ? GL_MODULATE : GL_MODULATE);
+	if (target != TV_ENV0)
+		return;
+	tev_bound = def_slot(tev_ids, index, 0);
+	if (tev_bound) {
+		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, tevs[tev_bound].mode);
+		glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, tevs[tev_bound].colour);
+	}
+	update_texturing();
 }
 
+/*
+ * texgen(3G): TG_LINEAR (an object-space plane), TG_CONTOUR (an eye-space
+ * plane, through the matrix current now) and TG_SPHEREMAP define a
+ * coordinate's function; TG_ON and TG_OFF turn it on and off, and defining
+ * does not turn it on.
+ */
 void
 texgen(long coord, long mode, const float params[])
 {
-	GLenum c = coord == TX_S ? GL_S : GL_T;
+	static const GLenum coords[4] = { GL_S, GL_T, GL_R, GL_Q };
+	static const GLenum gens[4] = {
+		GL_TEXTURE_GEN_S, GL_TEXTURE_GEN_T, GL_TEXTURE_GEN_R, GL_TEXTURE_GEN_Q
+	};
+	GLenum c;
 
+	hgl_irisgl_tracef("texgen %ld %ld", coord, mode);
 	hgl_iris_ensure();
-	if (mode == TG_OFF) {
-		glDisable(c == GL_S ? GL_TEXTURE_GEN_S : GL_TEXTURE_GEN_T);
+	if (coord < TX_S || coord > TX_Q)
 		return;
-	}
-	if (mode == TG_LINEAR) {
+	c = coords[coord];
+	switch (mode) {
+	case TG_OFF:
+		glDisable(gens[coord]);
+		break;
+	case TG_ON:
+		glEnable(gens[coord]);
+		break;
+	case TG_LINEAR:
 		glTexGeni(c, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
 		if (params)
 			glTexGenfv(c, GL_OBJECT_PLANE, params);
-	} else if (mode == TG_SPHEREMAP) {
-		glTexGeni(c, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-	} else {
+		break;
+	case TG_CONTOUR:
 		glTexGeni(c, GL_TEXTURE_GEN_MODE, GL_EYE_LINEAR);
 		if (params)
 			glTexGenfv(c, GL_EYE_PLANE, params);
+		break;
+	case TG_SPHEREMAP:
+		if (c == GL_S || c == GL_T)
+			glTexGeni(c, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+		break;
 	}
-	glEnable(c == GL_S ? GL_TEXTURE_GEN_S : GL_TEXTURE_GEN_T);
 }
 
 /* ---- the rest of the drawing set ----
@@ -1185,37 +1310,92 @@ color(Colorindex i)
 void
 czclear(unsigned long c, long z)
 {
+	float was[4];
+	long was_index = hgl_colour_index;
+	int was_last = colour_last;
+
+	hgl_irisgl_tracef("czclear %08lx %ld", c, z);
 	hgl_iris_ensure();
-	cpack(c);
+	if (hgl_selecting)
+		return;
+	/*
+	 * czclear(3G): c is a packed colour in RGB mode and an index in colour
+	 * map mode; the current colour does not change; and the writemasks,
+	 * like everything else but the screenmask, do not apply.
+	 */
+	hgl_current_colour(was);
+	if (hgl_iris.want_rgb)
+		cpack(c);
+	else
+		color((Colorindex)c);
 	glClearColor(cur_r, cur_g, cur_b, cur_a);
+	hgl_set_colour(was[0], was[1], was[2], was[3]);
+	hgl_colour_index = was_index;
+	colour_last = was_last;
+	glPushAttrib(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glDepthMask(GL_TRUE);
 	/* z in the screen z units getgdesc(GD_ZMAX) reports. */
 	glClearDepth((double)z / (double)0x7fffff);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glPopAttrib();
 }
 
+/* In SGI's libGL.so, not declared in IRIX's GL/gl.h. */
+extern void glBlendEquationEXT(GLenum mode);
+extern void glBlendColorEXT(GLfloat r, GLfloat g, GLfloat b, GLfloat a);
+
+/*
+ * blendfunction(3G). The factors are numbered in OpenGL's order, but 2 and 3
+ * are the *destination* colour as source factors (BF_DC, BF_MDC) and the
+ * *source* colour as destination factors (BF_SC, BF_MSC); 8 is OpenGL's
+ * SRC_ALPHA_SATURATE; 9..12 are blendcolor's constant; BF_MIN and BF_MAX
+ * (13, 14, as the source factor) are the min and max equations.
+ * (BF_ONE, BF_ZERO) is no blending, and any other function turns logicop
+ * back to LO_SRC.
+ */
 void
 blendfunction(long src, long dst)
 {
-	/* IRIS GL's factors are numbered from zero in the order OpenGL names
-	 * them, and BF_ONE/BF_ZERO off both mean "no blending". */
-	static const GLenum f[] = {
+	static const GLenum sf[13] = {
 		GL_ZERO, GL_ONE, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR,
-		GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA,
-		GL_ONE_MINUS_DST_ALPHA, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR
+		GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA,
+		GL_SRC_ALPHA_SATURATE, 0x8003 /* CONSTANT_ALPHA */, 0x8004 /* 1 - */,
+		0x8001 /* CONSTANT_COLOR */, 0x8002 /* 1 - */
 	};
-	int n = (int)(sizeof f / sizeof f[0]);
+	static const GLenum df[13] = {
+		GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR,
+		GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA,
+		GL_ONE, 0x8003, 0x8004, 0x8001, 0x8002
+	};
 
 	hgl_irisgl_tracef("blendfunction %ld %ld", src, dst);
 	hgl_iris_ensure();
-	if (src == 1 && dst == 0) {
+	if (src == BF_ONE && dst == BF_ZERO) {
 		hgl_enable(GL_BLEND, 0);
 		hgl_iris.blend = 0;
 		return;
 	}
-	glBlendFunc(src >= 0 && src < n ? f[src] : GL_ONE,
-	    dst >= 0 && dst < n ? f[dst] : GL_ZERO);
+	if (src == BF_MIN || src == BF_MAX) {
+		glBlendEquationEXT(src == BF_MIN ? 0x8007 /* MIN */ : 0x8008 /* MAX */);
+		glBlendFunc(GL_ONE, GL_ONE);
+	} else {
+		glBlendEquationEXT(0x8006 /* FUNC_ADD */);
+		glBlendFunc(src >= 0 && src < 13 ? sf[src] : GL_ONE,
+		    dst >= 0 && dst < 13 ? df[dst] : GL_ZERO);
+	}
+	glDisable(GL_COLOR_LOGIC_OP);
 	hgl_enable(GL_BLEND, 1);
 	hgl_iris.blend = 1;
+}
+
+void
+blendcolor(float r, float g, float b, float a)
+{
+	hgl_iris_ensure();
+#define CLAMP01(v) ((v) < 0.0f ? 0.0f : (v) > 1.0f ? 1.0f : (v))
+	glBlendColorEXT(CLAMP01(r), CLAMP01(g), CLAMP01(b), CLAMP01(a));
+#undef CLAMP01
 }
 
 void
@@ -1230,11 +1410,16 @@ void
 shademodel(long m)
 {
 	hgl_iris_ensure();
+	hgl_shade_model = m;
 	glShadeModel(m ? GL_SMOOTH : GL_FLAT);
 }
 
 void dither(long on) { hgl_iris_ensure(); if (on) glEnable(GL_DITHER); else glDisable(GL_DITHER); }
-void linewidth(short w) { hgl_iris_ensure(); glLineWidth(w > 0 ? w : 1); }
+/* The line width and shade model, as last set, for pushattributes. */
+float hgl_line_width = 1.0f;
+long hgl_shade_model = GOURAUD;
+
+void linewidth(short w) { hgl_iris_ensure(); hgl_line_width = w > 0 ? w : 1; glLineWidth(hgl_line_width); }
 void pntsize(short s) { hgl_iris_ensure(); glPointSize(s > 0 ? s : 1); }
 
 void
@@ -1243,9 +1428,10 @@ linesmooth(unsigned long on)
 	hgl_irisgl_tracef("linesmooth %lu", on);
 	hgl_iris_ensure();
 	if (on) {
+		/* the program sets the blend function to go with it
+		 * (linesmooth(3G)); turning blending on here brought back
+		 * whatever function was set last */
 		glEnable(GL_LINE_SMOOTH);
-		hgl_enable(GL_BLEND, 1);
-		hgl_iris.blend = 1;
 	} else {
 		glDisable(GL_LINE_SMOOTH);
 	}
@@ -1257,8 +1443,6 @@ pntsmooth(unsigned long on)
 	hgl_iris_ensure();
 	if (on) {
 		glEnable(GL_POINT_SMOOTH);
-		hgl_enable(GL_BLEND, 1);
-		hgl_iris.blend = 1;
 	} else {
 		glDisable(GL_POINT_SMOOTH);
 	}

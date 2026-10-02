@@ -20,6 +20,8 @@
 
 extern void hgl_array_pointer(int which, GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
 extern void hgl_client_unit(GLenum target);
+/* The texture unit the coordinate calls act on now, from 0. */
+extern int hgl_client_unit_now(void);
 /* glDrawBuffer, per context: has the front buffer been drawn into since the
  * window was last presented? hgl_front_drawn(1) answers and forgets. */
 extern void hgl_draw_buffer(GLenum mode);

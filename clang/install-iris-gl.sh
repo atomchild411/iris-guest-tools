@@ -16,9 +16,16 @@
 # change here: /usr/lib32 and /usr/gfx are left as SGI installed them, and
 # preloading is not used (rld binds these libraries directly).
 #
-# The record: the first run writes `ls -l` of both /var/arch/lib32 links to
-# /opt/pkgsrc/lib/iris-tools/sgi-links-lib32.txt and never overwrites it, so
-# -u always restores SGI's original targets.  If a name there is a regular
+# libGLcore.so too, where IRIX has one: SGI's libGL.so is GLX alone and its
+# GL functions are in libGLcore.so, which drives the board itself, and a
+# program that lists libGLcore.so before libGL.so would take them from there.
+# The package's libGLcore.so has no functions and needs libGL.so, so they all
+# come from the shim whatever a program lists.
+#
+# The record: each /var/arch/lib32 link is written, as `ls -l`, to
+# /opt/pkgsrc/lib/iris-tools/sgi-links-lib32.txt the first time it is
+# switched, and never rewritten, so -u always restores SGI's original
+# targets.  If a name there is a regular
 # file rather than a link, it is moved (not copied) to
 # /opt/pkgsrc/lib/iris-tools/sgi-orig-lib32/ and -u moves it back.  A link
 # that already points into /opt/pkgsrc/lib/iris-tools, or into an older
@@ -39,6 +46,10 @@ USRLIB=$R/usr/lib32
 RECORD=$TOOLS/sgi-links-lib32.txt
 ORIG=$TOOLS/sgi-orig-lib32
 NAMES="libGL.so libgl.so"
+# libGLcore.so only where this IRIX has one
+if [ -h $USRLIB/libGLcore.so ] || [ -f $USRLIB/libGLcore.so ]; then
+	NAMES="$NAMES libGLcore.so"
+fi
 
 target() {	# target LINK: what a symlink points at (from ls -l)
 	ls -l "$1" | awk '{ print $NF }'
@@ -129,26 +140,27 @@ for n in $NAMES; do
 done
 
 mkdir -p $ARCH
-if [ ! -f $RECORD ]; then
-	: > $RECORD.new
-	for n in $NAMES; do
-		if [ -h $ARCH/$n ]; then
-			t=`target $ARCH/$n`
-			if ours "$t"; then
-				echo "install-iris-gl.sh: $ARCH/$n already points at a shim ($t); SGI's target is unknown: not recorded" >&2
-			else
-				(cd $ARCH && ls -l $n) >> $RECORD.new
-			fi
-		elif [ -f $ARCH/$n ]; then
-			mkdir -p $ORIG
-			mv $ARCH/$n $ORIG/$n
-			echo "$ARCH/$n: regular file, moved to $ORIG/$n"
+for n in $NAMES; do
+	# already recorded (as a link, or moved aside as a file)?
+	[ -f $ORIG/$n ] && continue
+	if [ -f $RECORD ] && awk -v n=$n '$(NF-2) == n { f = 1 } END { exit !f }' $RECORD; then
+		continue
+	fi
+	if [ -h $ARCH/$n ]; then
+		t=`target $ARCH/$n`
+		if ours "$t"; then
+			echo "install-iris-gl.sh: $ARCH/$n already points at a shim ($t); SGI's target is unknown: not recorded" >&2
+		else
+			(cd $ARCH && ls -l $n) >> $RECORD
+			echo "$ARCH/$n: SGI's target recorded"
 		fi
-	done
-	mv $RECORD.new $RECORD
-	echo "SGI's links recorded in $RECORD:"
-	cat $RECORD
-fi
+	elif [ -f $ARCH/$n ]; then
+		mkdir -p $ORIG
+		mv $ARCH/$n $ORIG/$n
+		echo "$ARCH/$n: regular file, moved to $ORIG/$n"
+	fi
+done
+[ -f $RECORD ] && { echo "SGI's links ($RECORD):"; cat $RECORD; }
 
 for n in $NAMES; do
 	relink $LIBS/$n $ARCH/$n

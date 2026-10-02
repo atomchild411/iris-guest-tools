@@ -1852,6 +1852,176 @@ t_single(Display *dpy, Window win, GLXContext ctx)
 	reset_view();
 }
 
+/*
+ * The gl* entry points of SGI's libGLcore.so that the rest of the shim did
+ * not have (glshim_sgi.c). Looked up by name, as a program would find them.
+ */
+#define SGI_FN(type, name, args) type (*name) args = (type (*) args)(self ? dlsym(self, #name) : NULL)
+
+/* SGIS_multitexture under its later names, glMultiTexCoord*SGIS: the same
+ * two textures as t_multitexture_arrays, unit 1's coordinate through them. */
+static void
+t_sgis_multitexcoord(void)
+{
+	static GLubyte base[2 * 3] = { 255, 0, 0, 0, 255, 0 };
+	static GLubyte light[2 * 3] = { 255, 255, 255, 0, 0, 0 };
+	static GLfloat verts[4 * 2] = { 8, 8, 56, 8, 56, 56, 8, 56 };
+	static GLfloat st1[4 * 2] = { 0.25f, 0.5f, 0.25f, 0.5f, 0.25f, 0.5f, 0.25f, 0.5f };
+	GLuint tex[2];
+	GLint client;
+	int unit, i;
+	unsigned long got;
+	void *self = dlopen(NULL, RTLD_LAZY);
+	SGI_FN(void, glActiveTextureARB, (GLenum));
+	SGI_FN(void, glClientActiveTextureARB, (GLenum));
+	SGI_FN(void, glMultiTexCoord2fSGIS, (GLenum, GLfloat, GLfloat));
+	SGI_FN(void, glMultiTexCoordPointerSGIS, (GLenum, GLint, GLenum, GLsizei, const GLvoid *));
+
+	if (glMultiTexCoord2fSGIS == NULL || glMultiTexCoordPointerSGIS == NULL || glActiveTextureARB == NULL) {
+		check("glMultiTexCoord2fSGIS and glMultiTexCoordPointerSGIS are there", 0);
+		return;
+	}
+	reset_view();
+	glGenTextures(2, tex);
+	for (unit = 0; unit < 2; unit++) {
+		glActiveTextureARB(GL_TEXTURE0_ARB + unit);
+		glBindTexture(GL_TEXTURE_2D, tex[unit]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 2, 1, 0, GL_RGB, GL_UNSIGNED_BYTE,
+		    unit == 0 ? base : light);
+		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, unit == 0 ? GL_REPLACE : GL_MODULATE);
+		glEnable(GL_TEXTURE_2D);
+	}
+
+	/* green from unit 0, times white (0.25) or black (0.75) from unit 1 */
+	for (i = 0; i < 2; i++) {
+		GLfloat s1 = i == 0 ? 0.25f : 0.75f;
+		glClear(GL_COLOR_BUFFER_BIT);
+		glBegin(GL_QUADS);
+		glMultiTexCoord2fSGIS(0x835E, 0.75f, 0.5f);	/* TEXTURE0_SGIS */
+		glMultiTexCoord2fSGIS(0x835F, s1, 0.5f);	/* TEXTURE1_SGIS */
+		glVertex2f(8, 8); glVertex2f(56, 8); glVertex2f(56, 56); glVertex2f(8, 56);
+		glEnd();
+		got = pixel(32, 32);
+		check(i == 0 ? "glMultiTexCoord2fSGIS sets each unit (white on unit 1)" :
+		    "glMultiTexCoord2fSGIS sets each unit (black on unit 1)",
+		    got == (i == 0 ? 0x00ff00UL : 0UL));
+	}
+
+	/* unit 1's array by glMultiTexCoordPointerSGIS, unit 0 a constant */
+	glClientActiveTextureARB(GL_TEXTURE0_ARB);
+	glMultiTexCoordPointerSGIS(0x835F, 2, GL_FLOAT, 0, st1);
+	glGetIntegerv(0x84E1, &client);			/* CLIENT_ACTIVE_TEXTURE_ARB */
+	check("glMultiTexCoordPointerSGIS leaves the client unit as it was", client == GL_TEXTURE0_ARB);
+	glClientActiveTextureARB(GL_TEXTURE1_ARB);
+	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	glClientActiveTextureARB(GL_TEXTURE0_ARB);
+	glMultiTexCoord2fSGIS(0x835E, 0.75f, 0.5f);
+	glVertexPointer(2, GL_FLOAT, 0, verts);
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glDrawArrays(GL_QUADS, 0, 4);
+	check("glMultiTexCoordPointerSGIS gives unit 1 its array", pixel(32, 32) == 0x00ff00);
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glClientActiveTextureARB(GL_TEXTURE1_ARB);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+	glClientActiveTextureARB(GL_TEXTURE0_ARB);
+
+	for (unit = 1; unit >= 0; unit--) {
+		glActiveTextureARB(GL_TEXTURE0_ARB + unit);
+		glDisable(GL_TEXTURE_2D);
+		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	}
+	glDeleteTextures(2, tex);
+	check("no GL error from SGIS_multitexture's calls", glGetError() == GL_NO_ERROR);
+	reset_view();
+}
+
+/* The rest: what they keep reads back, and none of them is an error. */
+static void
+t_libglcore_extras(void)
+{
+	void *self = dlopen(NULL, RTLD_LAZY);
+	SGI_FN(void, glPointParameterfEXT, (GLenum, GLfloat));
+	SGI_FN(GLuint, glGenAsyncMarkersSGIX, (GLsizei));
+	SGI_FN(void, glAsyncMarkerSGIX, (GLuint));
+	SGI_FN(GLint, glFinishAsyncSGIX, (GLuint *));
+	SGI_FN(GLint, glPollAsyncSGIX, (GLuint *));
+	SGI_FN(GLboolean, glIsAsyncMarkerSGIX, (GLuint));
+	SGI_FN(void, glDeleteAsyncMarkersSGIX, (GLuint, GLsizei));
+	SGI_FN(void, glFragmentLightfvSGIX, (GLenum, GLenum, const GLfloat *));
+	SGI_FN(void, glGetFragmentLightfvSGIX, (GLenum, GLenum, GLfloat *));
+	SGI_FN(void, glFragmentMaterialiSGIX, (GLenum, GLenum, GLint));
+	SGI_FN(void, glGetFragmentMaterialivSGIX, (GLenum, GLenum, GLint *));
+	SGI_FN(void, glPixelTexGenParameteriSGIS, (GLenum, GLint));
+	SGI_FN(void, glGetPixelTexGenParameterivSGIS, (GLenum, GLint *));
+	SGI_FN(void, glTangent3fSGIX, (GLfloat, GLfloat, GLfloat));
+	SGI_FN(void, glBinormal3fSGIX, (GLfloat, GLfloat, GLfloat));
+	SGI_FN(void, glIglooInterfaceSGIX, (GLenum, const GLvoid *));
+	GLfloat f[4], d[4] = { 0.25f, 0.5f, 0.75f, 1.0f };
+	GLint iv;
+	GLuint m, done;
+
+	while (glGetError() != GL_NO_ERROR)
+		;
+	if (glPointParameterfEXT == NULL) {
+		check("glPointParameterfEXT is there", 0);
+	} else {
+		glPointParameterfEXT(0x8126, 2.0f);		/* POINT_SIZE_MIN_EXT */
+		glGetFloatv(0x8126, f);
+		check("glPointParameterfEXT reads back as POINT_SIZE_MIN", near(f[0], 2.0));
+		glPointParameterfEXT(0x8126, 0.0f);
+	}
+
+	if (glGenAsyncMarkersSGIX == NULL || glFinishAsyncSGIX == NULL || glPollAsyncSGIX == NULL ||
+	    glAsyncMarkerSGIX == NULL || glIsAsyncMarkerSGIX == NULL || glDeleteAsyncMarkersSGIX == NULL) {
+		check("SGIX_async's calls are there", 0);
+	} else {
+		m = glGenAsyncMarkersSGIX(2);
+		check("glGenAsyncMarkersSGIX/glIsAsyncMarkerSGIX", m != 0 && glIsAsyncMarkerSGIX(m + 1) && !glIsAsyncMarkerSGIX(m + 2));
+		glAsyncMarkerSGIX(m + 1);
+		done = 0;
+		check("glFinishAsyncSGIX reports the marker", glFinishAsyncSGIX(&done) == 1 && done == m + 1);
+		check("glPollAsyncSGIX then has nothing", glPollAsyncSGIX(&done) == 0);
+		glDeleteAsyncMarkersSGIX(m, 2);
+		check("glDeleteAsyncMarkersSGIX", !glIsAsyncMarkerSGIX(m));
+	}
+
+	if (glFragmentLightfvSGIX == NULL || glGetFragmentLightfvSGIX == NULL ||
+	    glFragmentMaterialiSGIX == NULL || glGetFragmentMaterialivSGIX == NULL) {
+		check("SGIX_fragment_lighting's calls are there", 0);
+	} else {
+		glFragmentLightfvSGIX(0x840D, GL_DIFFUSE, d);	/* FRAGMENT_LIGHT1_SGIX */
+		glGetFragmentLightfvSGIX(0x840D, GL_DIFFUSE, f);
+		check("glFragmentLightfvSGIX reads back", near(f[0], 0.25) && near(f[3], 1.0));
+		glFragmentMaterialiSGIX(GL_FRONT, GL_SHININESS, 17);
+		glGetFragmentMaterialivSGIX(GL_FRONT, GL_SHININESS, &iv);
+		check("glFragmentMaterialiSGIX reads back", iv == 17);
+	}
+
+	if (glPixelTexGenParameteriSGIS == NULL || glGetPixelTexGenParameterivSGIS == NULL) {
+		check("SGIS_pixel_texture's calls are there", 0);
+	} else {
+		glPixelTexGenParameteriSGIS(0x8354, GL_CURRENT_RASTER_COLOR);	/* PIXEL_FRAGMENT_RGB_SOURCE_SGIS */
+		glGetPixelTexGenParameterivSGIS(0x8354, &iv);
+		check("glPixelTexGenParameteriSGIS reads back", iv == GL_CURRENT_RASTER_COLOR);
+	}
+
+	if (glTangent3fSGIX == NULL || glBinormal3fSGIX == NULL || glIglooInterfaceSGIX == NULL) {
+		check("the entry points with no effect are there", 0);
+	} else {
+		glBegin(GL_POINTS);
+		glTangent3fSGIX(1, 0, 0);
+		glBinormal3fSGIX(0, 1, 0);
+		glVertex2f(1, 1);
+		glEnd();
+		glIglooInterfaceSGIX(0, NULL);
+		check("the entry points with no effect take their arguments", 1);
+	}
+	check("no GL error from libGLcore's extras", glGetError() == GL_NO_ERROR);
+}
+
 int
 main(void)
 {
@@ -1902,6 +2072,8 @@ main(void)
 	t_texture_select();
 	t_texture4d();
 	t_multitexture_arrays();
+	t_sgis_multitexcoord();
+	t_libglcore_extras();
 	t_sprite();
 	t_pixel_texture();
 	t_clipmap();

@@ -709,6 +709,12 @@ hgl_client_unit(GLenum target)
 	cur_client->client_unit = u;
 }
 
+int
+hgl_client_unit_now(void)
+{
+	return cur_client->client_unit;
+}
+
 /* glDrawBuffer: whether drawing now goes to the front buffer. */
 void
 hgl_draw_buffer(GLenum mode)

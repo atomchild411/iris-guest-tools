@@ -23,7 +23,7 @@
 # The two library names differ only in case, which a Mac cannot keep in one
 # directory, so the tarball carries them as libglshim.so (OpenGL, SONAME
 # libGL.so) and libirisgl.so (IRIS GL, SONAME libgl.so); install.sh gives
-# them their IRIX names.
+# them their IRIX names. libGLcore.so, the stand-in for SGI's, keeps its own.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 GT=$(cd "$HERE/.." && pwd)
@@ -60,7 +60,7 @@ clang)
 	sh "$GT/clang/build.sh" build
 	sh "$GT/clang/build.sh" check
 	B=$WORK/build/iris-tools
-	cp "$B/lib/libglshim.so" "$B/lib/libirisgl.so" "$stage/n32/"
+	cp "$B/lib/libglshim.so" "$B/lib/libirisgl.so" "$B/lib/libGLcore.so" "$stage/n32/"
 	for t in glcheck gltest glbench gloverlay irisgltest hostcall_test; do
 		cp "$B/bin/$t" "$stage/bin/n32/"
 	done
@@ -69,7 +69,7 @@ clang)
 mipspro)
 	[ -f "$MIPSPRO/n32/libglshim.so" ] && [ -f "$MIPSPRO/o32/libglshim.so" ] || {
 		echo "make-release.sh: no MIPSpro build in $MIPSPRO (./build.sh gl)" >&2; exit 1; }
-	cp "$MIPSPRO/n32/libglshim.so" "$MIPSPRO/n32/libirisgl.so" "$stage/n32/"
+	cp "$MIPSPRO/n32/libglshim.so" "$MIPSPRO/n32/libirisgl.so" "$MIPSPRO/n32/libGLcore.so" "$stage/n32/"
 	for t in glcheck gltest glbench gloverlay irisgltest; do
 		cp "$MIPSPRO/n32/$t" "$stage/bin/n32/"
 	done
@@ -78,9 +78,9 @@ mipspro)
 *) echo "make-release.sh: COMPILER is clang or mipspro" >&2; exit 1 ;;
 esac
 abis=n32
-if [ -f "$MIPSPRO/o32/libglshim.so" ] && [ -f "$MIPSPRO/o32/libirisgl.so" ]; then
+if [ -f "$MIPSPRO/o32/libglshim.so" ] && [ -f "$MIPSPRO/o32/libirisgl.so" ] && [ -f "$MIPSPRO/o32/libGLcore.so" ]; then
 	mkdir -p "$stage/o32" "$stage/bin/o32"
-	cp "$MIPSPRO/o32/libglshim.so" "$MIPSPRO/o32/libirisgl.so" "$stage/o32/"
+	cp "$MIPSPRO/o32/libglshim.so" "$MIPSPRO/o32/libirisgl.so" "$MIPSPRO/o32/libGLcore.so" "$stage/o32/"
 	for t in glcheck gltest glbench gloverlay irisgltest; do
 		[ -f "$MIPSPRO/o32/$t" ] && cp "$MIPSPRO/o32/$t" "$stage/bin/o32/"
 	done

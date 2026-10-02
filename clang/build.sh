@@ -23,6 +23,9 @@
 #                                      must not overlap (rld would have to
 #                                      move one of them), and the check step
 #                                      verifies they do not.
+#   build/iris-tools/lib/libGLcore.so  the stand-in for SGI's (no functions,
+#                                      needs libGL.so; gl/glcore_stub.c),
+#                                      based at 0x00600000
 #   build/iris-tools/bin/{glcheck,glbench,gltest,gloverlay,
 #                         irisgltest,hostcall_test}
 #
@@ -58,6 +61,7 @@ LIBDIRS="-L$SGI/usr/lib32"
 
 GLSHIM_BASE=0x00400000
 IRISGL_BASE=0x00500000
+GLCORE_BASE=0x00600000
 
 build() {
 	sgi_inputs
@@ -87,10 +91,15 @@ EOF
 	"$CC" $CFLAGS $INCS -shared -Wl,-soname,libGL.so -Wl,--image-base=$GLSHIM_BASE \
 	    -o "$OUT/lib/libglshim.so" \
 	    "$SRC/gl/glshim_rt.c" "$SRC/gl/glshim_glx.c" "$SRC/gl/glshim_gen.c" \
-	    "$SRC/hostcall/hostcall_trap32.s" $LIBDIRS -lXext -lX11 -lm
+	    "$SRC/gl/glshim_sgi.c" "$SRC/hostcall/hostcall_trap32.s" $LIBDIRS -lXext -lX11 -lm
 	# for -lGL: a directory holding only libGL.so (libgl.so would be the same
 	# name on this filesystem)
 	ln -sf ../lib/libglshim.so "$OUT/link/libGL.so"
+
+	echo "build-iris-tools: libGLcore.so (stand-in)"
+	# shellcheck disable=SC2086
+	"$CC" $CFLAGS -shared -Wl,-soname,libGLcore.so -Wl,--image-base=$GLCORE_BASE \
+	    -Wl,--no-as-needed -o "$OUT/lib/libGLcore.so" "$SRC/gl/glcore_stub.c" -L"$OUT/link" -lGL
 
 	echo "build-iris-tools: libirisgl.so (libgl.so)"
 	# shellcheck disable=SC2086
@@ -139,7 +148,7 @@ check() {
 	SYSROOT="$SYSROOT" SGI="$SGI" python3 "$HERE/undef-check.py" --shim "$OUT/lib/libglshim.so" --lib libgl.so="$OUT/lib/libirisgl.so" "$OUT"/lib/*.so "$OUT"/bin/* || status=1
 
 	echo "== load ranges"
-	for l in libglshim.so libirisgl.so; do echo "   $l: $(span "$OUT/lib/$l")"; done
+	for l in libglshim.so libirisgl.so libGLcore.so; do echo "   $l: $(span "$OUT/lib/$l")"; done
 	g_hi=$(span "$OUT/lib/libglshim.so" | awk '{print $2}')
 	i_lo=$(span "$OUT/lib/libirisgl.so" | awk '{print $1}')
 	if [ $((g_hi)) -gt $((i_lo)) ]; then
@@ -181,6 +190,7 @@ check() {
 # The tarball, rooted at /:
 #   opt/pkgsrc/lib/iris-tools/lib32/libGL.so   (libglshim.so)
 #   opt/pkgsrc/lib/iris-tools/lib32/libgl.so   (libirisgl.so)
+#   opt/pkgsrc/lib/iris-tools/lib32/libGLcore.so
 #   opt/pkgsrc/bin/{glcheck,...,hostcall_test}
 #   opt/pkgsrc/share/iris-tools/install-iris-gl.sh
 # libGL.so and libgl.so cannot sit side by side in a staging directory here,
@@ -191,6 +201,7 @@ package() {
 	mkdir -p "$stage/opt/pkgsrc/lib/iris-tools/lib32" "$stage/opt/pkgsrc/bin" "$stage/opt/pkgsrc/share/iris-tools"
 	cp "$OUT/lib/libglshim.so" "$stage/opt/pkgsrc/lib/iris-tools/lib32/opengl.stage"
 	cp "$OUT/lib/libirisgl.so" "$stage/opt/pkgsrc/lib/iris-tools/lib32/irisgl.stage"
+	cp "$OUT/lib/libGLcore.so" "$stage/opt/pkgsrc/lib/iris-tools/lib32/libGLcore.so"
 	for b in "$OUT"/bin/*; do cp "$b" "$stage/opt/pkgsrc/bin/"; done
 	cp "$HERE/install-iris-gl.sh" "$stage/opt/pkgsrc/share/iris-tools/"
 	chmod 755 "$stage"/opt/pkgsrc/lib/iris-tools/lib32/* "$stage"/opt/pkgsrc/bin/* \

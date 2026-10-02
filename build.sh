@@ -4,13 +4,17 @@
 #
 #   build/gl/n32/         libglshim.so (OpenGL + GLX, SONAME libGL.so,
 #                         -> /usr/lib32/libGL.so), libirisgl.so (IRIS GL,
-#                         SONAME libgl.so, -> /usr/lib32/libgl.so), the
+#                         SONAME libgl.so, -> /usr/lib32/libgl.so),
+#                         libGLcore.so (a stand-in for SGI's, which holds
+#                         its GL functions: no functions, needs libGL.so;
+#                         see gl/glcore_stub.c), the
 #                         tests glcheck, glbench, gltest, the
 #                         overlay demo gloverlay, and the IRIS GL test irisgltest
 #   build/gl/install-gl.sh  puts them in place in a guest (see the script)
 #   build/gl/o32/         the same for o32 programs (-> /usr/lib/...)
-#   build/gl/64/          libglshim.so and the tests for 64-bit programs
-#                         (-> /usr/lib64/libGL.so); IRIX has no 64-bit IRIS GL
+#   build/gl/64/          libglshim.so, libGLcore.so and the tests for 64-bit
+#                         programs (-> /usr/lib64/libGL.so); IRIX has no
+#                         64-bit IRIS GL
 #   build/gl/n32-cross/   libglshim.so and glcheck from the Mac cross compiler
 #   build/hostcall/       hostcall_test (n32, cross compiler)
 #   build/*/mipspro.log   compiler output of each MIPSpro step
@@ -174,7 +178,7 @@ gl() {
 	irisgl_generate "$out"
 	pack "$out" hostcall/hostcall_trap32.s hostcall/hostcall_trap64.s \
 	    gl/glshim.h gl/glshim_ops.h gl/glshim_rt.h gl/glshim_rt.c gl/glshim_glx.c \
-	    gl/glshim_gen.c \
+	    gl/glshim_gen.c gl/glshim_sgi.c gl/glcore_stub.c \
 	    irisgl/irisgl_shim.h irisgl/irisgl_rt.c irisgl/irisgl_draw.c irisgl/irisgl_pixels.c \
 	    irisgl/irisgl_font.c irisgl/irisgl_extra.c irisgl/irisgl_nurbs.c irisgl/irisgl_pup.c "$out/gen/irisgl_stubs.c" irisgl/irisgltest.c \
 	    gl/glcheck.c gl/glbench.c gl/gltest.c gl/gloverlay.c
@@ -188,9 +192,11 @@ mkdir -p out/n32 out/o32 out/64
 echo "== n32"
 rm -f so_locations.n32
 cc -n32 -mips3 -O2 -shared -Wl,-update_registry,./so_locations.n32 -Wl,-soname,libGL.so \
-    -o out/n32/libglshim.so glshim_rt.c glshim_glx.c glshim_gen.c hostcall_trap32.s -lXext -lX11 -lm
+    -o out/n32/libglshim.so glshim_rt.c glshim_glx.c glshim_gen.c glshim_sgi.c hostcall_trap32.s -lXext -lX11 -lm
 cc -n32 -mips3 -O2 -shared -Wl,-update_registry,./so_locations.n32 -Wl,-soname,libgl.so \
     -o out/n32/libirisgl.so irisgl_rt.c irisgl_draw.c irisgl_pixels.c irisgl_font.c irisgl_extra.c irisgl_nurbs.c irisgl_pup.c irisgl_stubs.c out/n32/libglshim.so -lGLU -lXext -lX11 -lm
+cc -n32 -mips3 -O2 -shared -Wl,-update_registry,./so_locations.n32 -Wl,-soname,libGLcore.so \
+    -o out/n32/libGLcore.so glcore_stub.c out/n32/libglshim.so
 cc -n32 -mips3 -O2 -o out/n32/glcheck glcheck.c -lGL -lX11
 cc -n32 -mips3 -O2 -o out/n32/glbench glbench.c -lGL -lX11
 cc -n32 -mips3 -O2 -o out/n32/gltest gltest.c -lGL -lX11 -lm
@@ -201,9 +207,11 @@ echo "== o32"
 cp "$2" so_locations.o32
 chmod u+w so_locations.o32
 cc -o32 -O2 -shared -Wl,-update_registry,./so_locations.o32 -Wl,-soname,libGL.so \
-    -o out/o32/libglshim.so glshim_rt.c glshim_glx.c glshim_gen.c hostcall_trap32.s -lXext -lX11 -lm
+    -o out/o32/libglshim.so glshim_rt.c glshim_glx.c glshim_gen.c glshim_sgi.c hostcall_trap32.s -lXext -lX11 -lm
 cc -o32 -O2 -shared -Wl,-update_registry,./so_locations.o32 -Wl,-soname,libgl.so \
     -o out/o32/libirisgl.so irisgl_rt.c irisgl_draw.c irisgl_pixels.c irisgl_font.c irisgl_extra.c irisgl_nurbs.c irisgl_pup.c irisgl_stubs.c out/o32/libglshim.so -lGLU -lXext -lX11 -lm
+cc -o32 -O2 -shared -Wl,-update_registry,./so_locations.o32 -Wl,-soname,libGLcore.so \
+    -o out/o32/libGLcore.so glcore_stub.c out/o32/libglshim.so
 cc -o32 -O2 -o out/o32/glcheck glcheck.c -lGL -lX11
 cc -o32 -O2 -o out/o32/glbench glbench.c -lGL -lX11
 cc -o32 -O2 -o out/o32/gltest gltest.c -lGL -lX11 -lm
@@ -212,7 +220,9 @@ echo "== 64"
 # OpenGL only: IRIX has no 64-bit IRIS GL. A fresh registry, as for n32.
 rm -f so_locations.64
 cc -64 -mips3 -O2 -shared -Wl,-update_registry,./so_locations.64 -Wl,-soname,libGL.so \
-    -o out/64/libglshim.so glshim_rt.c glshim_glx.c glshim_gen.c hostcall_trap64.s -lXext -lX11 -lm
+    -o out/64/libglshim.so glshim_rt.c glshim_glx.c glshim_gen.c glshim_sgi.c hostcall_trap64.s -lXext -lX11 -lm
+cc -64 -mips3 -O2 -shared -Wl,-update_registry,./so_locations.64 -Wl,-soname,libGLcore.so \
+    -o out/64/libGLcore.so glcore_stub.c out/64/libglshim.so
 cc -64 -mips3 -O2 -o out/64/glcheck glcheck.c -lGL -lX11
 cc -64 -mips3 -O2 -o out/64/glbench glbench.c -lGL -lX11
 cc -64 -mips3 -O2 -o out/64/gltest gltest.c -lGL -lX11 -lm

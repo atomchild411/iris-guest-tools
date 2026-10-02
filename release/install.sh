@@ -20,9 +20,17 @@
 # links change here: /usr/<lib dir> and /usr/gfx are left as SGI installed
 # them, and preloading is not used (rld binds these libraries directly).
 #
-# The record: the first run writes `ls -l` of the /var/arch links to
-# /usr/local/iris-tools/sgi-links-<lib dir>.txt and never overwrites it, so
-# -u always restores SGI's original targets. If a name there is a regular
+# libGLcore.so too, where IRIX has one: SGI's libGL.so is GLX alone and its
+# GL functions are in libGLcore.so, which drives the board itself, and a
+# program that lists libGLcore.so before libGL.so would take them from there.
+# The release's libGLcore.so has no functions and needs libGL.so, so they all
+# come from this release's libGL.so whatever a program lists.
+#
+# The record: each library's /var/arch link is written, as `ls -l`, to
+# /usr/local/iris-tools/sgi-links-<lib dir>.txt the first time it is
+# switched, and never rewritten, so -u always restores SGI's original
+# targets (an install over an older release adds the links that release did
+# not switch). If a name there is a regular
 # file rather than a link, it is moved (not copied) to
 # /usr/local/iris-tools/sgi-orig-<lib dir>/ and -u moves it back. A link that
 # already points at an IRIS GL library (this install, or the pkgsrc
@@ -38,7 +46,7 @@ set -e
 HERE=`dirname "$0"`
 R=${IRIS_TOOLS_TESTROOT:-}	# empty on a real machine; set only to test the script elsewhere
 TOOLS=$R/usr/local/iris-tools
-NAMES="libGL.so libgl.so"
+NAMES="libGL.so libgl.so libGLcore.so"
 
 mode=install
 case "$1" in
@@ -104,9 +112,15 @@ for abi in $abis; do
 	RECORD=$TOOLS/sgi-links-$ld.txt
 	ORIG=$TOOLS/sgi-orig-$ld
 	echo "== $abi ($ld)"
+	names=
+	for n in $NAMES; do
+		# libGLcore.so only where this IRIX has one
+		[ $n = libGLcore.so ] && [ ! -h $USRLIB/$n ] && [ ! -f $USRLIB/$n ] && continue
+		names="$names $n"
+	done
 
 	if [ $mode = show ]; then
-		for n in $NAMES; do
+		for n in $names; do
 			for p in $USRLIB/$n $ARCH/$n; do
 				if [ -h $p ]; then
 					echo "$p -> `target $p`"
@@ -123,7 +137,7 @@ for abi in $abis; do
 
 	if [ $mode = undo ]; then
 		[ -f $RECORD ] || { echo "no record ($RECORD): nothing to undo"; continue; }
-		for n in $NAMES; do
+		for n in $names; do
 			if [ -f $ORIG/$n ]; then
 				rm -f $ARCH/$n
 				mv $ORIG/$n $ARCH/$n
@@ -144,7 +158,7 @@ for abi in $abis; do
 		echo "install.sh: this release has no $abi libraries ($HERE/$abi)" >&2; exit 1; }
 	# /usr/<lib dir>/<name> must lead to /var/arch/<lib dir>/<name>, or
 	# changing that link would not change what programs load.
-	for n in $NAMES; do
+	for n in $names; do
 		if [ -h $USRLIB/$n ]; then
 			case "`target $USRLIB/$n`" in
 			*var/arch/$ld/$n) ;;
@@ -160,6 +174,7 @@ for abi in $abis; do
 	mkdir -p $LIBS $ARCH
 	put "$HERE/$abi/libglshim.so" $LIBS/libGL.so
 	put "$HERE/$abi/libirisgl.so" $LIBS/libgl.so
+	case "$names" in *libGLcore.so*) put "$HERE/$abi/libGLcore.so" $LIBS/libGLcore.so ;; esac
 	if [ -d "$HERE/bin/$abi" ]; then
 		mkdir -p $TOOLS/bin/$abi
 		for f in "$HERE/bin/$abi"/*; do
@@ -167,28 +182,29 @@ for abi in $abis; do
 		done
 	fi
 
-	if [ ! -f $RECORD ]; then
-		: > $RECORD.new
-		for n in $NAMES; do
-			if [ -h $ARCH/$n ]; then
-				t=`target $ARCH/$n`
-				if ours "$t"; then
-					echo "install.sh: $ARCH/$n already points at an IRIS GL library ($t); SGI's target is unknown: not recorded" >&2
-				else
-					(cd $ARCH && ls -l $n) >> $RECORD.new
-				fi
-			elif [ -f $ARCH/$n ]; then
-				mkdir -p $ORIG
-				mv $ARCH/$n $ORIG/$n
-				echo "$ARCH/$n: regular file, moved to $ORIG/$n"
+	for n in $names; do
+		# already recorded (as a link, or moved aside as a file)?
+		[ -f $ORIG/$n ] && continue
+		if [ -f $RECORD ] && awk -v n=$n '$(NF-2) == n { f = 1 } END { exit !f }' $RECORD; then
+			continue
+		fi
+		if [ -h $ARCH/$n ]; then
+			t=`target $ARCH/$n`
+			if ours "$t"; then
+				echo "install.sh: $ARCH/$n already points at an IRIS GL library ($t); SGI's target is unknown: not recorded" >&2
+			else
+				(cd $ARCH && ls -l $n) >> $RECORD
+				echo "$ARCH/$n: SGI's target recorded"
 			fi
-		done
-		mv $RECORD.new $RECORD
-		echo "SGI's links recorded in $RECORD:"
-		cat $RECORD
-	fi
+		elif [ -f $ARCH/$n ]; then
+			mkdir -p $ORIG
+			mv $ARCH/$n $ORIG/$n
+			echo "$ARCH/$n: regular file, moved to $ORIG/$n"
+		fi
+	done
+	[ -f $RECORD ] && { echo "SGI's links ($RECORD):"; cat $RECORD; }
 
-	for n in $NAMES; do
+	for n in $names; do
 		relink $LIBS/$n $ARCH/$n
 	done
 done

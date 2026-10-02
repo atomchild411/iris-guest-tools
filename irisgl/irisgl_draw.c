@@ -17,11 +17,23 @@
 static float cur_r = 0.0f, cur_g = 0.0f, cur_b = 0.0f, cur_a = 1.0f;
 unsigned long hgl_colour_serial, hgl_raster_serial;
 
+/*
+ * In lmcolor(LMC_COLOR) a vertex is lit only when a normal was the last of
+ * the two sent before it; when the colour was, it is drawn in the colour
+ * (lmcolor(3G)). So a program can draw an unlit shape -- a backdrop, a
+ * translucent sheet -- in the middle of a lit scene by sending a colour and
+ * no normal. This is which came last.
+ */
+static int colour_last;
+long hgl_lmcolor_mode = LMC_COLOR;
+
 /* Every way of setting the colour comes through here, so `clear` -- which in
  * IRIS GL fills with the current colour -- always has the right one. */
 void
 hgl_set_colour(float r, float g, float b, float a)
 {
+	if (hgl_lmcolor_mode == LMC_COLOR)
+		colour_last = 1;
 	cur_r = r;
 	cur_g = g;
 	cur_b = b;
@@ -95,6 +107,7 @@ zclear(void)
 void
 zbuffer(Boolean on)
 {
+	hgl_irisgl_tracef("zbuffer %d", (int)on);
 	hgl_irisgl_trace(on ? "zbuffer on" : "zbuffer off");
 	hgl_iris_ensure();
 	if (on)
@@ -137,9 +150,22 @@ cpack(unsigned long v)
 
 /* ---- primitives ---- */
 
-void bgnpolygon(void) { TRACE("bgnpolygon"); hgl_iris_ensure(); glBegin(GL_POLYGON); }
+/* For the trace: the first vertices of each primitive, with what they carry. */
+static int block_verts;
+void bgnpolygon(void) { TRACE("bgnpolygon"); hgl_begin(GL_POLYGON); }
 void endpolygon(void) { TRACE("endpolygon"); glEnd(); }
-void n3f(const float v[3]) { glNormal3fv(v); }
+/* The current normal and texture coordinate, which swaptmesh's repeated
+ * vertices need (see there). */
+static float cur_n[3] = { 0.0f, 0.0f, 1.0f };
+static float cur_t[2];
+
+void
+n3f(const float v[3])
+{
+	cur_n[0] = v[0]; cur_n[1] = v[1]; cur_n[2] = v[2];
+	colour_last = 0;
+	glNormal3fv(v);
+}
 
 /* ---- matrices ---- */
 
@@ -310,6 +336,14 @@ static Light lights[MAXDEF];
 static LModel lmodels[MAXDEF];
 static short bound_material, bound_backmaterial, bound_lmodel, bound_light[MAXLIGHTS];
 
+/* Whether a back material is bound: without one, the front material (and
+ * what lmcolor tracks into it) lights back faces too. */
+int
+hgl_back_material_bound(void)
+{
+	return bound_backmaterial != 0;
+}
+
 /*
  * IRIS GL numbers a definition with any positive short -- Performer's start
  * at 2049 -- so each kind keeps MAXDEF of them in slots found by number, and
@@ -381,14 +415,39 @@ static void apply_material(GLenum face, short index);
 static void apply_light(int n, short index);
 static void apply_lmodel(short index);
 
+/* Lighting is on while both a material and a lighting model are bound, and
+ * the last of a colour and a normal was a normal (see colour_last). */
+static int
+lighting_wanted(void)
+{
+	return bound_material && bound_lmodel && !(colour_last && hgl_lmcolor_mode == LMC_COLOR);
+}
+
+/* What the primitive being drawn was begun with, and as what. */
+static int prim_lit;
+static GLenum prim_mode;
+
 static void
 update_lighting_enable(void)
 {
-	/* Lighting is on while both a material and a lighting model are bound. */
-	if (bound_material && bound_lmodel)
-		hgl_enable(GL_LIGHTING, 1);
-	else
-		hgl_enable(GL_LIGHTING, 0);
+	prim_lit = lighting_wanted();
+	hgl_enable(GL_LIGHTING, prim_lit);
+}
+
+/*
+ * Every primitive starts here. OpenGL lights a primitive whole or not at
+ * all, and lighting can change only between primitives: it is set at the
+ * start, and once more at the first vertex (v3f) for a program that sends
+ * its normal or colour after the bgn. A change after that is not followed.
+ */
+void
+hgl_begin(GLenum mode)
+{
+	hgl_iris_ensure();
+	update_lighting_enable();
+	prim_mode = mode;
+	block_verts = 0;
+	glBegin(mode);
 }
 
 void
@@ -398,6 +457,9 @@ lmdef(short deftype, short index, short np, const float props[])
 	const float *v;
 
 	hgl_irisgl_tracef("lmdef %d %d np %d", deftype, index, np);
+	for (i = 0; props != NULL && i < (np > 0 ? np : 16); i++)
+		hgl_irisgl_tracef("  lmdef prop[%d] %g", i, props[i]);
+	i = 0;
 	if ((index = def_slot(def_ids(deftype), index, 1)) == 0)
 		return;
 	/* The first definition of an index starts from the defaults, and so
@@ -771,6 +833,7 @@ texdef2d(long index, long nc, long width, long height,
 void
 texbind(long target, long index)
 {
+	hgl_irisgl_tracef("texbind %ld %ld", target, index);
 	hgl_iris_ensure();
 	(void)target;
 	index = def_slot(tex_ids, index, 0);
@@ -793,6 +856,7 @@ tevdef(long index, long np, const float props[])
 void
 tevbind(long target, long index)
 {
+	hgl_irisgl_tracef("tevbind %ld %ld", target, index);
 	hgl_iris_ensure();
 	(void)target;
 	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, index ? GL_MODULATE : GL_MODULATE);
@@ -830,57 +894,110 @@ texgen(long coord, long mode, const float params[])
  */
 
 /* IRIS GL's primitives, each an OpenGL one. */
-void bgnline(void) { hgl_iris_ensure(); glBegin(GL_LINE_STRIP); }
+void bgnline(void) { hgl_begin(GL_LINE_STRIP); }
 void endline(void) { glEnd(); }
-void bgnclosedline(void) { hgl_iris_ensure(); glBegin(GL_LINE_LOOP); }
+void bgnclosedline(void) { hgl_begin(GL_LINE_LOOP); }
 void endclosedline(void) { glEnd(); }
-void bgnpoint(void) { hgl_iris_ensure(); glBegin(GL_POINTS); }
+void bgnpoint(void) { hgl_begin(GL_POINTS); }
 void endpoint(void) { glEnd(); }
-void bgntmesh(void) { hgl_iris_ensure(); glBegin(GL_TRIANGLE_STRIP); }
+static int tmesh_n;
+/* The facing of the next triangle: 0 as (older, newer, new vertex), 1 the
+ * other way round. It alternates with each triangle, as in a strip, and
+ * swaptmesh flips it too -- which is what keeps a fan made with swaptmesh,
+ * or any mesh that swaps, facing one way. Two-sided lighting and backface
+ * removal both see it. */
+static int tmesh_odd;
+void bgntmesh(void) { hgl_irisgl_tracef("bgntmesh"); tmesh_n = 0; tmesh_odd = 0; hgl_begin(GL_TRIANGLE_STRIP); }
 void endtmesh(void) { glEnd(); }
-void bgnqstrip(void) { hgl_iris_ensure(); glBegin(GL_QUAD_STRIP); }
+void bgnqstrip(void) { hgl_irisgl_tracef("bgnqstrip"); hgl_begin(GL_QUAD_STRIP); }
 void endqstrip(void) { glEnd(); }
 
 /*
- * swaptmesh changes which of the last two vertices the next triangle keeps.
- * GL_TRIANGLE_STRIP has no such control, and a strip that swaps is a different
- * strip -- so this ends the run and starts another, which draws the same
- * triangles at the cost of repeating two vertices. Recording them is what
- * makes that possible.
+ * A triangle mesh keeps two vertices, and each new one makes a triangle with
+ * them and then replaces the older; swaptmesh swaps which of the two is the
+ * older, so the next vertex replaces the other one. GL_TRIANGLE_STRIP has no
+ * such control, and a strip that swaps is a different strip -- so swaptmesh
+ * ends the run and starts another with the two kept vertices in their new
+ * order, which draws the same triangles at the cost of repeating two
+ * vertices. They are repeated whole: position, normal, colour and texture
+ * coordinate, as they were given, or the repeated ones would be lit and
+ * coloured with whatever came last.
  */
-static float tmesh_a[3], tmesh_b[3];
-static int tmesh_n;
+struct tmesh_vertex {
+	float v[3], n[3], t[2], c[4];
+};
+static struct tmesh_vertex tmesh_a, tmesh_b;	/* the older, the newer */
+
+static void
+tmesh_put(const struct tmesh_vertex *p)
+{
+	glColor4fv(p->c);
+	glNormal3fv(p->n);
+	glTexCoord2fv(p->t);
+	glVertex3fv(p->v);
+}
 
 void
 swaptmesh(void)
 {
+	struct tmesh_vertex t = tmesh_a;
+	float c[4];
+
+	tmesh_a = tmesh_b;
+	tmesh_b = t;
+	tmesh_odd ^= 1;
 	glEnd();
 	glBegin(GL_TRIANGLE_STRIP);
 	if (tmesh_n >= 2) {
-		glVertex3fv(tmesh_b);
-		glVertex3fv(tmesh_a);
+		/* A strip's next triangle faces as the count of its vertices so
+		 * far is even or odd: the older vertex twice (a triangle with no
+		 * area) makes it odd. */
+		if (tmesh_odd)
+			tmesh_put(&tmesh_a);
+		tmesh_put(&tmesh_a);
+		tmesh_put(&tmesh_b);
+		/* what is current again what it was */
+		hgl_current_colour(c);
+		glColor4fv(c);
+		glNormal3fv(cur_n);
+		glTexCoord2fv(cur_t);
 	}
 }
 
 void
 v3f(const float v[3])
 {
-	tmesh_a[0] = tmesh_b[0]; tmesh_a[1] = tmesh_b[1]; tmesh_a[2] = tmesh_b[2];
-	tmesh_b[0] = v[0]; tmesh_b[1] = v[1]; tmesh_b[2] = v[2];
+	tmesh_a = tmesh_b;
+	tmesh_b.v[0] = v[0]; tmesh_b.v[1] = v[1]; tmesh_b.v[2] = v[2];
+	tmesh_b.n[0] = cur_n[0]; tmesh_b.n[1] = cur_n[1]; tmesh_b.n[2] = cur_n[2];
+	tmesh_b.t[0] = cur_t[0]; tmesh_b.t[1] = cur_t[1];
+	hgl_current_colour(tmesh_b.c);
 	if (tmesh_n < 2)
 		tmesh_n++;
+	else
+		tmesh_odd ^= 1;		/* a triangle was made */
+	if (block_verts == 0 && lighting_wanted() != prim_lit) {
+		/* nothing drawn yet: begin again, lit or not as it now is */
+		glEnd();
+		update_lighting_enable();
+		glBegin(prim_mode);
+	}
+	if (block_verts++ < 3)
+		hgl_irisgl_tracef("  v %g %g %g n %g %g %g c %g %g %g %g t %g %g", v[0], v[1], v[2],
+		    cur_n[0], cur_n[1], cur_n[2], tmesh_b.c[0], tmesh_b.c[1], tmesh_b.c[2], tmesh_b.c[3],
+		    cur_t[0], cur_t[1]);
 	glVertex3fv(v);
 }
 
-void v2f(const float v[2]) { glVertex2fv(v); }
-void v2i(const long v[2]) { glVertex2i((GLint)v[0], (GLint)v[1]); }
-void v2s(const short v[2]) { glVertex2s(v[0], v[1]); }
+void v2f(const float v[2]) { float f[3]; f[0] = v[0]; f[1] = v[1]; f[2] = 0.0f; v3f(f); }
+void v2i(const long v[2]) { float f[3]; f[0] = (float)v[0]; f[1] = (float)v[1]; f[2] = 0.0f; v3f(f); }
+void v2s(const short v[2]) { float f[3]; f[0] = v[0]; f[1] = v[1]; f[2] = 0.0f; v3f(f); }
 void v4f(const float v[4]) { glVertex4fv(v); }
 void c3f(const float v[3]) { hgl_irisgl_tracef("c3f %g %g %g", v[0], v[1], v[2]); hgl_set_colour(v[0], v[1], v[2], 1.0f); }
 void c4f(const float v[4]) { hgl_set_colour(v[0], v[1], v[2], v[3]); }
-void t2f(const float v[2]) { glTexCoord2fv(v); }
-void t2i(const long v[2]) { glTexCoord2f((GLfloat)v[0], (GLfloat)v[1]); }
-void t2s(const short v[2]) { glTexCoord2f(v[0], v[1]); }
+void t2f(const float v[2]) { cur_t[0] = v[0]; cur_t[1] = v[1]; glTexCoord2fv(v); }
+void t2i(const long v[2]) { cur_t[0] = (float)v[0]; cur_t[1] = (float)v[1]; glTexCoord2fv(cur_t); }
+void t2s(const short v[2]) { cur_t[0] = v[0]; cur_t[1] = v[1]; glTexCoord2fv(cur_t); }
 
 void
 RGBcolor(short r, short g, short b)
@@ -918,6 +1035,46 @@ cmap_set(int i, unsigned long rgb)
 	cmap[i][2] = (float)(rgb & 0xff) / 255.0f;
 }
 
+/*
+ * What the X server's default colormap holds now, over the table: SGI's
+ * library reads its cells, and they are not only the 4sight map -- the
+ * desktop's scheme colours sit past it (from 56 on), and a program written
+ * with FORMS reads the whole map with getmcolor and draws its panels in
+ * those cells' colours. Only for a colormap visual: a TrueColor one has no
+ * cells to read.
+ */
+static void
+cmap_from_server(void)
+{
+	Display *d = hgl_display();
+	Visual *v;
+	XColor *x;
+	int i, n;
+
+	if (d == NULL)
+		return;
+	v = DefaultVisual(d, DefaultScreen(d));
+	if (v->class != PseudoColor && v->class != GrayScale && v->class != StaticColor &&
+	    v->class != StaticGray)
+		return;
+	n = DisplayCells(d, DefaultScreen(d));
+	if (n > HGL_CMAP_SIZE)
+		n = HGL_CMAP_SIZE;
+	if (n <= 0 || (x = malloc(n * sizeof *x)) == NULL)
+		return;
+	for (i = 0; i < n; i++)
+		x[i].pixel = (unsigned long)i;
+	XQueryColors(d, DefaultColormap(d, DefaultScreen(d)), x, n);
+	for (i = 0; i < n; i++) {
+		cmap[i][0] = (float)x[i].red / 65535.0f;
+		cmap[i][1] = (float)x[i].green / 65535.0f;
+		cmap[i][2] = (float)x[i].blue / 65535.0f;
+		if ((x[i].red | x[i].green | x[i].blue) && (unsigned long)i > cmap_top)
+			cmap_top = i;
+	}
+	free(x);
+}
+
 static void
 cmap_init(void)
 {
@@ -939,6 +1096,7 @@ cmap_init(void)
 	for (i = 0; i < 24; i++)
 		cmap_set(32 + i, ramp[i] << 16 | ramp[i] << 8 | ramp[i]);
 	cmap_ready = 1;
+	cmap_from_server();
 }
 
 void
@@ -1047,6 +1205,7 @@ blendfunction(long src, long dst)
 	};
 	int n = (int)(sizeof f / sizeof f[0]);
 
+	hgl_irisgl_tracef("blendfunction %ld %ld", src, dst);
 	hgl_iris_ensure();
 	if (src == 1 && dst == 0) {
 		hgl_enable(GL_BLEND, 0);
@@ -1081,6 +1240,7 @@ void pntsize(short s) { hgl_iris_ensure(); glPointSize(s > 0 ? s : 1); }
 void
 linesmooth(unsigned long on)
 {
+	hgl_irisgl_tracef("linesmooth %lu", on);
 	hgl_iris_ensure();
 	if (on) {
 		glEnable(GL_LINE_SMOOTH);
@@ -1129,6 +1289,7 @@ void
 rectf(Coord x1, Coord y1, Coord x2, Coord y2)
 {
 	hgl_iris_ensure();
+	update_lighting_enable();
 	glRectf(x1, y1, x2, y2);
 	if (hgl_iris.blend)
 		return;
@@ -1159,7 +1320,7 @@ void
 rect(Coord x1, Coord y1, Coord x2, Coord y2)
 {
 	hgl_iris_ensure();
-	glBegin(GL_LINE_LOOP);
+	hgl_begin(GL_LINE_LOOP);
 	glVertex2f(x1, y1);
 	glVertex2f(x2, y1);
 	glVertex2f(x2, y2);
@@ -1205,7 +1366,7 @@ rectfs(short x1, short y1, short x2, short y2)
 Object genobj(void) { hgl_iris_ensure(); return (Object)glGenLists(1); }
 void makeobj(Object o) { hgl_iris_ensure(); glNewList((GLuint)o, GL_COMPILE); }
 void closeobj(void) { glEndList(); }
-void callobj(Object o) { hgl_iris_ensure(); glCallList((GLuint)o); }
+void callobj(Object o) { hgl_irisgl_tracef("callobj %ld", (long)o); hgl_iris_ensure(); glCallList((GLuint)o); }
 void delobj(Object o) { hgl_iris_ensure(); glDeleteLists((GLuint)o, 1); }
 long isobj(Object o) { hgl_iris_ensure(); return glIsList((GLuint)o); }
 
@@ -1354,6 +1515,7 @@ getmcolor(Colorindex i, short *r, short *g, short *b)
 	*r = (short)(cmap[i][0] * 255.0f + 0.5f);
 	*g = (short)(cmap[i][1] * 255.0f + 0.5f);
 	*b = (short)(cmap[i][2] * 255.0f + 0.5f);
+	hgl_irisgl_tracef("getmcolor %d -> %d %d %d", i, *r, *g, *b);
 }
 
 /* ---- fog ----

@@ -1502,6 +1502,7 @@ viewport(Screencoord l, Screencoord r, Screencoord b, Screencoord t)
 void
 scrmask(Screencoord l, Screencoord r, Screencoord b, Screencoord t)
 {
+	hgl_irisgl_tracef("scrmask %d %d %d %d", (int)l, (int)r, (int)b, (int)t);
 	TRACE("scrmask");
 	hgl_iris_ensure();
 	hgl_iris.mask_l = l;

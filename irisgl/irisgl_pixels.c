@@ -750,8 +750,9 @@ lmcolor(long mode)
 
 	hgl_irisgl_tracef("lmcolor %ld", mode);
 	hgl_iris_ensure();
+	hgl_lmcolor_mode = mode;
 	if (mode > LMC_COLOR && mode <= LMC_AD) {
-		glColorMaterial(GL_FRONT, what[mode]);
+		glColorMaterial(hgl_back_material_bound() ? GL_FRONT : GL_FRONT_AND_BACK, what[mode]);
 		glEnable(GL_COLOR_MATERIAL);
 	} else {
 		/* LMC_COLOR, and LMC_NULL: colour commands leave materials alone. */

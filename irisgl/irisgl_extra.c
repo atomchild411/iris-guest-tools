@@ -472,6 +472,7 @@ hgl_apply_colormask(void)
 void
 wmpack(unsigned long m)
 {
+	hgl_irisgl_tracef("wmpack %#lx", m);
 	hgl_iris_ensure();
 	wm[0] = (m & 0xff) != 0;
 	wm[1] = (m >> 8 & 0xff) != 0;
@@ -530,7 +531,7 @@ static void
 pen_line(float x, float y, float z)
 {
 	hgl_iris_ensure();
-	glBegin(GL_LINES);
+	hgl_begin(GL_LINES);
 	glVertex3f(pen[0], pen[1], pen[2]);
 	glVertex3f(x, y, z);
 	glEnd();
@@ -553,7 +554,7 @@ poly_move(float x, float y, float z)
 	hgl_iris_ensure();
 	if (in_poly)
 		glEnd();
-	glBegin(GL_POLYGON);
+	hgl_begin(GL_POLYGON);
 	glVertex3f(x, y, z);
 	in_poly = 1;
 	pen_move(x, y, z);
@@ -644,7 +645,7 @@ void
 pnt(Coord x, Coord y, Coord z)
 {
 	hgl_iris_ensure();
-	glBegin(GL_POINTS);
+	hgl_begin(GL_POINTS);
 	glVertex3f(x, y, z);
 	glEnd();
 	pen_move(x, y, z);
@@ -664,7 +665,7 @@ void name(long n, const T parray[][dim]) \
 	if (n <= 0 || parray == NULL) \
 		return; \
 	hgl_iris_ensure(); \
-	glBegin(mode); \
+	hgl_begin(mode); \
 	for (i = 0; i < n; i++) \
 		glVertex3f((float)parray[i][0], (float)parray[i][1], dim > 2 ? (float)parray[i][dim > 2 ? 2 : 0] : 0.0f); \
 	glEnd(); \
@@ -691,7 +692,7 @@ void name(long n, const T parray[][dim], const Colorindex iarray[]) \
 	if (n <= 0 || parray == NULL || iarray == NULL) \
 		return; \
 	hgl_iris_ensure(); \
-	glBegin(GL_POLYGON); \
+	hgl_begin(GL_POLYGON); \
 	for (i = 0; i < n; i++) { \
 		hgl_cmap_rgb(iarray[i], rgb); \
 		glColor3ub(rgb[0], rgb[1], rgb[2]); \
@@ -714,14 +715,15 @@ void concave(Boolean b) { (void)b; }
 
 /* ---- vertices, normals, colours and texture coordinates ---- */
 
-void v2d(const double v[2]) { glVertex2d(v[0], v[1]); }
-void v3d(const double v[3]) { glVertex3d(v[0], v[1], v[2]); }
+/* Through v3f, which a triangle mesh's swaptmesh needs to see every vertex. */
+void v2d(const double v[2]) { float f[3]; f[0] = (float)v[0]; f[1] = (float)v[1]; f[2] = 0.0f; v3f(f); }
+void v3d(const double v[3]) { float f[3]; f[0] = (float)v[0]; f[1] = (float)v[1]; f[2] = (float)v[2]; v3f(f); }
 void v4d(const double v[4]) { glVertex4d(v[0], v[1], v[2], v[3]); }
-void v3i(const long v[3]) { glVertex3i((GLint)v[0], (GLint)v[1], (GLint)v[2]); }
+void v3i(const long v[3]) { float f[3]; f[0] = (float)v[0]; f[1] = (float)v[1]; f[2] = (float)v[2]; v3f(f); }
 void v4i(const long v[4]) { glVertex4i((GLint)v[0], (GLint)v[1], (GLint)v[2], (GLint)v[3]); }
-void v3s(const short v[3]) { glVertex3s(v[0], v[1], v[2]); }
+void v3s(const short v[3]) { float f[3]; f[0] = v[0]; f[1] = v[1]; f[2] = v[2]; v3f(f); }
 void v4s(const short v[4]) { glVertex4s(v[0], v[1], v[2], v[3]); }
-void normal(const Coord v[3]) { glNormal3fv(v); }
+void normal(const Coord v[3]) { n3f(v); }
 void t2d(const double v[2]) { glTexCoord2d(v[0], v[1]); }
 void t3d(const double v[3]) { glTexCoord3d(v[0], v[1], v[2]); }
 void t3f(const float v[3]) { glTexCoord3fv(v); }
@@ -791,10 +793,10 @@ arc_path(float x, float y, float r, long a0, long a1, int filled, int closed)
 	if (n < 2)
 		n = 2;
 	if (filled) {
-		glBegin(GL_TRIANGLE_FAN);
+		hgl_begin(GL_TRIANGLE_FAN);
 		glVertex2f(x, y);
 	} else {
-		glBegin(closed ? GL_LINE_LOOP : GL_LINE_STRIP);
+		hgl_begin(closed ? GL_LINE_LOOP : GL_LINE_STRIP);
 	}
 	for (i = 0; i <= n; i++) {
 		if (closed && !filled && i == n)
@@ -1008,6 +1010,7 @@ void
 clipplane(long index, long mode, const float params[])
 {
 	GLdouble eq[4];
+	hgl_irisgl_tracef("clipplane %ld mode %ld", index, mode);
 
 	hgl_iris_ensure();
 	if (index < 0 || index > 5)
@@ -1039,6 +1042,7 @@ st_op(long op)
 void
 stencil(long enable, unsigned long ref, long func, unsigned long mask, long fail, long pass, long zpass)
 {
+	hgl_irisgl_tracef("stencil %ld ref %lu func %ld mask %#lx ops %ld %ld %ld", enable, ref, func, mask, fail, pass, zpass);
 	hgl_iris_ensure();
 	if (!enable) {
 		glDisable(GL_STENCIL_TEST);
@@ -1055,6 +1059,7 @@ void stensize(long planes) { (void)planes; /* always 8 here */ }
 void
 sclear(unsigned long v)
 {
+	hgl_irisgl_tracef("sclear %lu", v);
 	hgl_iris_ensure();
 	glClearStencil((GLint)v);
 	glClear(GL_STENCIL_BUFFER_BIT);

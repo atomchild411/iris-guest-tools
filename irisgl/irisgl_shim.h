@@ -179,4 +179,9 @@ void hgl_current_colour(float *rgba);
 extern long hgl_colour_index;
 unsigned long hgl_cmap_index(unsigned char r, unsigned char g, unsigned char b);
 
+int hgl_back_material_bound(void);
+/* Every primitive begins here, so it is lit or not as IRIS GL would light it. */
+void hgl_begin(GLenum mode);
+/* The lmcolor mode, which decides what colour commands do under lighting. */
+extern long hgl_lmcolor_mode;
 #endif

@@ -520,10 +520,55 @@ t_lighting(void)
 	}
 	popmatrix();
 	p = pix(30, 30);
-	lmbind(MATERIAL, 0);
-	mmode(MSINGLE);
 	sprintf(what, "... and still red under a squashing scale: %06lx", p);
 	check(what, chan(p, 0) > 160 && chan(p, 8) < 40 && chan(p, 16) < 40);
+
+	/* lmcolor(LMC_COLOR): a vertex is lit when a normal was the last of the
+	 * two sent before it, and drawn in the colour when the colour was.
+	 * UroMan draws its translucent cutting plane that way, mid-scene. */
+	{
+		static float n[3] = { 0, 0, 1 };
+		static float v[4][3] = { { 10, 10, 0 }, { 50, 10, 0 }, { 50, 50, 0 }, { 10, 50, 0 } };
+		int i;
+
+		cpack(C_BLACK);
+		clear();
+		cpack(0xff00ff00UL);
+		bgnpolygon();
+		for (i = 0; i < 4; i++)
+			v3f(v[i]);
+		endpolygon();
+		p = pix(30, 30);
+		sprintf(what, "a colour and no normal under lighting is drawn unlit: %06lx", p);
+		check(what, chan(p, 8) > 200 && chan(p, 0) < 40);
+
+		cpack(0xff00ff00UL);
+		bgnpolygon();
+		for (i = 0; i < 4; i++) {
+			n3f(n);
+			v3f(v[i]);
+		}
+		endpolygon();
+		p = pix(30, 30);
+		sprintf(what, "... and a normal after the colour is lit again: %06lx", p);
+		check(what, chan(p, 0) > 160 && chan(p, 8) < 40);
+
+		/* In any other mode a colour sets the material, and stays lit. */
+		lmcolor(LMC_DIFFUSE);
+		bgnpolygon();
+		for (i = 0; i < 4; i++) {
+			n3f(n);
+			cpack(0xff00ff00UL);
+			v3f(v[i]);
+		}
+		endpolygon();
+		lmcolor(LMC_COLOR);
+		p = pix(30, 30);
+		sprintf(what, "lmcolor(LMC_DIFFUSE): the colour is the lit material: %06lx", p);
+		check(what, chan(p, 8) > 160 && chan(p, 0) < 40);
+	}
+	lmbind(MATERIAL, 0);
+	mmode(MSINGLE);
 	winclose(gid);
 }
 

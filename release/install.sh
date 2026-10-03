@@ -26,6 +26,18 @@
 # The release's libGLcore.so has no functions and needs libGL.so, so they all
 # come from this release's libGL.so whatever a program lists.
 #
+# The X server: its GLX extension (glx.so, which Xsgi loads) needs SGI's
+# libGLcore.so, and the n32 link no longer leads there, so it would fail to
+# load ("unresolvable symbol ... __gl_adapters") and the server would answer
+# every GLX request with BadImplementation. So each local X server in
+# /var/X11/xdm/Xservers is started as
+#     /sbin/env LD_LIBRARYN32_PATH=<SGI's libGLcore.so directory> <command>
+# which puts SGI's library first for the X server alone. The original file
+# is kept as /usr/local/iris-tools/sgi-Xservers and the directory added in
+# xservers-path.txt; -u takes out exactly that prefix. An Xservers that sets
+# a library path already is left alone. The X server reads it when it next
+# starts: reboot.
+#
 # The record: each library's /var/arch link is written, as `ls -l`, to
 # /usr/local/iris-tools/sgi-links-<lib dir>.txt the first time it is
 # switched, and never rewritten, so -u always restores SGI's original
@@ -91,6 +103,46 @@ relink() {	# relink TARGET LINK
 	echo "$2 -> $1"
 }
 
+XSERVERS=$R/var/X11/xdm/Xservers
+XMARK=$TOOLS/xservers-path.txt
+
+sgi_core_dir() {	# sgi_core_dir ARCH RECORD ORIG: where SGI's libGLcore.so is (as the guest sees it)
+	if [ -f $3/libGLcore.so ]; then
+		d=$3
+	else
+		t=`awk '$(NF-2) == "libGLcore.so" { print $NF }' $2 2>/dev/null`
+		[ -n "$t" ] || return 1
+		d=`cd $1 && cd \`dirname $t\` && pwd` || return 1
+	fi
+	[ -f $d/libGLcore.so ] || return 1
+	echo "$d" | sed "s|^$R||"
+}
+
+xservers_on() {	# xservers_on DIR: start the local X servers with DIR on their n32 library path
+	[ -f $XSERVERS ] || return 0
+	if grep LD_LIBRARYN32_PATH= $XSERVERS > /dev/null; then
+		echo "$XSERVERS: already sets a library path; left alone"
+		return 0
+	fi
+	[ -f $TOOLS/sgi-Xservers ] || cp -p $XSERVERS $TOOLS/sgi-Xservers
+	# local servers: "<display> <class> /<command> ...", and not comments
+	cp -p $XSERVERS $XSERVERS.new
+	sed "s|^\(:[^ 	#]*[ 	][ 	]*[^ 	]*[ 	][ 	]*\)/|\1/sbin/env LD_LIBRARYN32_PATH=$1 /|" $XSERVERS > $XSERVERS.new
+	mv -f $XSERVERS.new $XSERVERS
+	echo "$1" > $XMARK
+	echo "$XSERVERS: X server's GLX gets SGI's libGLcore.so from $1 (from the next X start: reboot)"
+}
+
+xservers_off() {	# take out what xservers_on added
+	[ -f $XMARK ] && [ -f $XSERVERS ] || return 0
+	d=`cat $XMARK`
+	cp -p $XSERVERS $XSERVERS.new
+	sed "s|/sbin/env LD_LIBRARYN32_PATH=$d /|/|" $XSERVERS > $XSERVERS.new
+	mv -f $XSERVERS.new $XSERVERS
+	rm -f $XMARK
+	echo "$XSERVERS: X server back to IRIX's library path (from the next X start: reboot)"
+}
+
 put() {	# put SRC DST: copy under a temporary name, then rename over DST
 	cp "$1" "$2.new"
 	chmod 755 "$2.new"
@@ -132,6 +184,10 @@ for abi in $abis; do
 			done
 		done
 		[ -f $RECORD ] && { echo "record ($RECORD):"; cat $RECORD; }
+		if [ $abi = n32 ] && [ -f $XSERVERS ]; then
+			echo "X servers ($XSERVERS):"
+			grep '^:' $XSERVERS || true
+		fi
 		continue
 	fi
 
@@ -151,6 +207,7 @@ for abi in $abis; do
 				echo "$ARCH/$n: not in the record; left alone"
 			fi
 		done
+		[ $abi = n32 ] && xservers_off
 		continue
 	fi
 
@@ -207,5 +264,17 @@ for abi in $abis; do
 	for n in $names; do
 		relink $LIBS/$n $ARCH/$n
 	done
+
+	# the X server is n32: its GLX needs SGI's libGLcore.so back
+	if [ $abi = n32 ]; then
+		case "$names" in
+		*libGLcore.so*)
+			if d=`sgi_core_dir $ARCH $RECORD $ORIG`; then
+				xservers_on $d
+			else
+				echo "install.sh: SGI's n32 libGLcore.so not found from the record: X server left as it is (its GLX will not load)" >&2
+			fi ;;
+		esac
+	fi
 done
 sync

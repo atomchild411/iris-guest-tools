@@ -17,9 +17,13 @@ Install, as root, from this directory:
     ./install.sh -u       switch back to SGI's libraries
 
 install.sh records SGI's setup the first time it runs and never overwrites
-that record, so -u always puts SGI's libraries back. It changes only the
-links in /var/arch/lib32 (n32) and /var/arch/lib (o32); the libraries go to
-/usr/local/iris-tools.
+that record, so -u always puts SGI's libraries back. It changes the links
+in /var/arch/lib32 (n32) and /var/arch/lib (o32); the libraries go to
+/usr/local/iris-tools. It also starts the X server with SGI's libGLcore.so
+directory on its library path (a prefix on its line in
+/var/X11/xdm/Xservers), so the server's own GLX extension still loads;
+-u takes that out again. Reboot after installing for the X server to
+pick it up.
 
 Check it, as a user logged in to the desktop:
 

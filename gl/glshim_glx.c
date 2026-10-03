@@ -17,6 +17,7 @@
  */
 #include <stdlib.h>
 #include <string.h>
+#include <dlfcn.h>
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
@@ -25,6 +26,23 @@
 #include <X11/extensions/XShm.h>
 #include <GL/gl.h>
 #include <GL/glx.h>
+
+/* GLX 1.3, which IRIX 6.5.22's glx.h has and 6.5.7's (the build host's)
+ * doesn't: its FBConfigs are the SGIX ones. */
+#ifndef GLX_VERSION_1_3
+typedef GLXFBConfigSGIX GLXFBConfig;
+typedef XID GLXWindow;
+typedef XID GLXPbuffer;
+#define GLX_SCREEN		0x800C
+#define GLX_RENDER_TYPE		0x8011
+#define GLX_FBCONFIG_ID		0x8013
+#define GLX_RGBA_TYPE		0x8014
+#define GLX_COLOR_INDEX_TYPE	0x8015
+#define GLX_WIDTH		0x801D
+#define GLX_HEIGHT		0x801E
+#define GLX_PBUFFER_HEIGHT	0x8040
+#define GLX_PBUFFER_WIDTH	0x8041
+#endif
 #include "glshim.h"
 #include "glshim_rt.h"
 
@@ -77,11 +95,18 @@ pbuffer_of(GLXDrawable d)
  * visual of depth 24. SGI's programs ask for configs rather than visuals when
  * they want a pbuffer, so the two have to name the same thing.
  */
-struct __GLXFBConfigSGIXRec {
+/* An FBConfig is a visual. 6.5.22's glx.h names the struct __GLXFBConfigRec
+ * (GLX 1.3's, which the SGIX one now shares), 6.5.7's __GLXFBConfigSGIXRec. */
+#ifdef GLX_VERSION_1_3
+#define HGL_FBCONFIG_REC __GLXFBConfigRec
+#else
+#define HGL_FBCONFIG_REC __GLXFBConfigSGIXRec
+#endif
+struct HGL_FBCONFIG_REC {
 	XVisualInfo vi;
 	int samples;        /* GLX_SGIS_multisample */
 };
-static struct __GLXFBConfigSGIXRec configs[8];
+static struct HGL_FBCONFIG_REC configs[8];
 static int nconfigs;
 
 static GLXFBConfigSGIX
@@ -862,6 +887,42 @@ take_single_ctx(GLXContext ctx)
 	return 0;
 }
 
+/* What GLX's context queries (glXQueryContext, glXQueryContextInfoEXT)
+ * ask of a context: the host holds the context, this the facts. */
+#define HGL_CTXINFO 64
+static struct {
+	GLXContext ctx, share;
+	VisualID visual;
+	int screen;
+} ctxinfo[HGL_CTXINFO];
+
+static int
+ctxinfo_of(GLXContext ctx)
+{
+	int i;
+
+	for (i = 0; ctx != NULL && i < HGL_CTXINFO; i++)
+		if (ctxinfo[i].ctx == ctx)
+			return i;
+	return -1;
+}
+
+static void
+ctxinfo_note(GLXContext ctx, XVisualInfo *vis, GLXContext share)
+{
+	int i = ctxinfo_of(ctx);
+
+	if (i < 0)
+		for (i = 0; i < HGL_CTXINFO && ctxinfo[i].ctx != NULL; i++)
+			;
+	if (i >= HGL_CTXINFO)
+		return;
+	ctxinfo[i].ctx = ctx;
+	ctxinfo[i].share = share;
+	ctxinfo[i].visual = vis != NULL ? vis->visualid : 0;
+	ctxinfo[i].screen = vis != NULL ? vis->screen : 0;
+}
+
 GLXContext
 glXCreateContext(Display *dpy, XVisualInfo *vis, GLXContext share, Bool direct)
 {
@@ -877,6 +938,7 @@ glXCreateContext(Display *dpy, XVisualInfo *vis, GLXContext share, Bool direct)
 	    vis->class == PseudoColor || vis->class == StaticColor || vis->class == GrayScale));
 	note_single_ctx((GLXContext)(long)r, vis != NULL && vis->visualid != 0 &&
 	    vis->visualid == single_visual(dpy, vis->screen));
+	ctxinfo_note((GLXContext)(long)r, vis, share);
 	return (GLXContext)(long)r;
 }
 
@@ -908,6 +970,8 @@ glXDestroyContext(Display *dpy, GLXContext ctx)
 	hgl_client_forget(ctx);
 	note_index_ctx(ctx, 0);
 	note_single_ctx(ctx, 0);
+	if (ctxinfo_of(ctx) >= 0)
+		ctxinfo[ctxinfo_of(ctx)].ctx = NULL;
 	if (ctx == cur_ctx)
 		cur_ctx = NULL;
 }
@@ -1574,3 +1638,239 @@ glGetString(GLenum name)
 		return NULL;
 	return (const GLubyte *)strings[k];
 }
+
+/* ---- GLX 1.3, and the rest of what SGI's libGL.so exports ----
+ *
+ * A program that names any entry point SGI's library has and this one
+ * lacks is refused by rld before main ("unresolvable symbol"): vrp2DO2
+ * died on glXGetCurrentDisplayEXT. GLX 1.3's FBConfigs are the SGIX ones,
+ * its pbuffers and pixmaps the SGIX and 1.0 ones. Channels, hyperpipes,
+ * swap barriers and video sources are SGI hardware there is none of here;
+ * they answer as a machine without them does.
+ */
+GLXFBConfig *
+glXChooseFBConfig(Display *dpy, int screen, int *attribList, int *nitems)
+{
+	return glXChooseFBConfigSGIX(dpy, screen, attribList, nitems);
+}
+
+GLXFBConfig *
+glXGetFBConfigs(Display *dpy, int screen, int *nelements)
+{
+	return glXChooseFBConfigSGIX(dpy, screen, NULL, nelements);
+}
+
+int
+glXGetFBConfigAttrib(Display *dpy, GLXFBConfig config, int attribute, int *value)
+{
+	return glXGetFBConfigAttribSGIX(dpy, config, attribute, value);
+}
+
+XVisualInfo *
+glXGetVisualFromFBConfig(Display *dpy, GLXFBConfig config)
+{
+	return glXGetVisualFromFBConfigSGIX(dpy, config);
+}
+
+GLXPixmap
+glXCreateGLXPixmapWithConfigSGIX(Display *dpy, GLXFBConfigSGIX config, Pixmap pixmap)
+{
+	return config != NULL ? glXCreateGLXPixmap(dpy, &config->vi, pixmap) : None;
+}
+
+GLXPixmap
+glXCreatePixmap(Display *dpy, GLXFBConfig config, Pixmap pixmap, int *attrib_list)
+{
+	(void)attrib_list;
+	return glXCreateGLXPixmapWithConfigSGIX(dpy, config, pixmap);
+}
+
+void
+glXDestroyPixmap(Display *dpy, GLXPixmap pix)
+{
+	glXDestroyGLXPixmap(dpy, pix);
+}
+
+/* A GLX window is the X window itself here. */
+GLXWindow
+glXCreateWindow(Display *dpy, GLXFBConfig config, Window win, int *attrib_list)
+{
+	(void)dpy;
+	(void)config;
+	(void)attrib_list;
+	return win;
+}
+
+void
+glXDestroyWindow(Display *dpy, GLXWindow win)
+{
+	(void)dpy;
+	(void)win;
+}
+
+GLXPbuffer
+glXCreatePbuffer(Display *dpy, GLXFBConfig config, int *attrib_list)
+{
+	unsigned int w = 0, h = 0;
+	int i;
+
+	for (i = 0; attrib_list != NULL && attrib_list[i] != None; i += 2)
+		if (attrib_list[i] == GLX_PBUFFER_WIDTH)
+			w = (unsigned)attrib_list[i + 1];
+		else if (attrib_list[i] == GLX_PBUFFER_HEIGHT)
+			h = (unsigned)attrib_list[i + 1];
+	return glXCreateGLXPbufferSGIX(dpy, config, w, h, NULL);
+}
+
+void
+glXDestroyPbuffer(Display *dpy, GLXPbuffer pbuf)
+{
+	glXDestroyGLXPbufferSGIX(dpy, pbuf);
+}
+
+void
+glXQueryDrawable(Display *dpy, GLXDrawable draw, int attribute, unsigned int *value)
+{
+	Window root;
+	int x, y;
+	unsigned int w, h, bw, depth;
+
+	if (value == NULL)
+		return;
+	if (pbuffer_of(draw) >= 0) {
+		glXQueryGLXPbufferSGIX(dpy, draw, attribute == GLX_WIDTH ? GLX_WIDTH_SGIX :
+		    attribute == GLX_HEIGHT ? GLX_HEIGHT_SGIX : attribute, value);
+		return;
+	}
+	*value = 0;
+	if ((attribute == GLX_WIDTH || attribute == GLX_HEIGHT) &&
+	    XGetGeometry(dpy, draw, &root, &x, &y, &w, &h, &bw, &depth))
+		*value = attribute == GLX_WIDTH ? w : h;
+}
+
+GLXContext
+glXCreateNewContext(Display *dpy, GLXFBConfig config, int render_type, GLXContext share_list, Bool direct)
+{
+	return glXCreateContextWithConfigSGIX(dpy, config, render_type, share_list, direct);
+}
+
+Bool
+glXMakeContextCurrent(Display *dpy, GLXDrawable draw, GLXDrawable read, GLXContext gc)
+{
+	return make_current(dpy, draw, read, gc);
+}
+
+GLXDrawable
+glXGetCurrentReadDrawable(void)
+{
+	return glXGetCurrentReadDrawableSGI();
+}
+
+int
+glXQueryContext(Display *dpy, GLXContext ctx, int attribute, int *value)
+{
+	int i = ctxinfo_of(ctx);
+
+	(void)dpy;
+	if (i < 0)
+		return GLX_BAD_CONTEXT;
+	switch (attribute) {
+	case GLX_FBCONFIG_ID: *value = (int)ctxinfo[i].visual; return Success;
+	case GLX_RENDER_TYPE: *value = is_index_ctx(ctx) ? GLX_COLOR_INDEX_TYPE : GLX_RGBA_TYPE; return Success;
+	case GLX_SCREEN: *value = ctxinfo[i].screen; return Success;
+	}
+	return GLX_BAD_ATTRIBUTE;
+}
+
+/* GLX_EXT_import_context: a context can't be shared with another
+ * process here, but it can be asked about. */
+int
+glXQueryContextInfoEXT(Display *dpy, GLXContext ctx, int attribute, int *value)
+{
+	int i = ctxinfo_of(ctx);
+
+	(void)dpy;
+	if (i < 0)
+		return GLX_BAD_CONTEXT;
+	switch (attribute) {
+	case GLX_SHARE_CONTEXT_EXT: *value = (int)(long)(char *)ctxinfo[i].share; return Success;
+	case GLX_VISUAL_ID_EXT: *value = (int)ctxinfo[i].visual; return Success;
+	case GLX_SCREEN_EXT: *value = ctxinfo[i].screen; return Success;
+	}
+	return GLX_BAD_ATTRIBUTE;
+}
+
+Display *glXGetCurrentDisplayEXT(void) { return glXGetCurrentDisplay(); }
+GLXDrawable glXGetCurrentDrawableEXT(void) { return glXGetCurrentDrawable(); }
+GLXContextID glXGetContextIDEXT(const GLXContext gc) { return (GLXContextID)(long)(char *)gc; }
+GLXContext glXImportContextEXT(Display *dpy, GLXContextID id) { (void)dpy; (void)id; return NULL; }
+void glXFreeContextEXT(Display *dpy, GLXContext gc) { (void)dpy; (void)gc; }
+
+/* glXCopyContext: the host copies nothing between contexts yet. */
+#ifdef GLX_VERSION_1_3
+#define HGL_COPY_MASK unsigned long
+#else
+#define HGL_COPY_MASK GLuint	/* 6.5.7's glx.h; the same size */
+#endif
+void
+glXCopyContext(Display *dpy, GLXContext src, GLXContext dst, HGL_COPY_MASK mask)
+{
+	(void)dpy; (void)src; (void)dst; (void)mask;
+}
+
+/* GLX events (pbuffer clobber): none are sent, so the masks are kept to
+ * answer with. */
+static unsigned long glx_event_mask;
+
+void glXSelectEvent(Display *dpy, GLXDrawable d, unsigned long m) { (void)dpy; (void)d; glx_event_mask = m; }
+void glXGetSelectedEvent(Display *dpy, GLXDrawable d, unsigned long *m) { (void)dpy; (void)d; if (m) *m = glx_event_mask; }
+void glXSelectEventSGIX(Display *dpy, GLXDrawable d, unsigned long m) { glXSelectEvent(dpy, d, m); }
+void glXGetSelectedEventSGIX(Display *dpy, GLXDrawable d, unsigned long *m) { glXGetSelectedEvent(dpy, d, m); }
+
+/* glXGetProcAddress: any entry point this library has. */
+void (*glXGetProcAddress(const GLubyte *name))(void)
+{
+	static void *self;
+
+	if (name == NULL)
+		return NULL;
+	if (self == NULL)
+		self = dlopen(NULL, RTLD_LAZY);
+	return self != NULL ? (void (*)(void))dlsym(self, (const char *)name) : NULL;
+}
+
+void (*glXGetProcAddressARB(const GLubyte *name))(void)
+{
+	return glXGetProcAddress(name);
+}
+
+/* SGI hardware that isn't here. */
+int glXBindChannelToWindowSGIX(Display *d, int s, int c, Window w) { (void)d; (void)s; (void)c; (void)w; return 0; }
+int glXQueryChannelDeltasSGIX(Display *d, int s, int c, int *x, int *y, int *w, int *h) { (void)d; (void)s; (void)c; (void)x; (void)y; (void)w; (void)h; return 0; }
+int glXChannelRectSGIX(Display *d, int s, int c, int x, int y, int w, int h) { (void)d; (void)s; (void)c; (void)x; (void)y; (void)w; (void)h; return 0; }
+int glXQueryChannelRectSGIX(Display *d, int s, int c, int *x, int *y, int *w, int *h) { (void)d; (void)s; (void)c; (void)x; (void)y; (void)w; (void)h; return 0; }
+int glXChannelRectSyncSGIX(Display *d, int s, int c, GLenum t) { (void)d; (void)s; (void)c; (void)t; return 0; }
+GLXHyperpipeNetworkSGIX *glXQueryHyperpipeNetworkSGIX(Display *d, int *n) { (void)d; if (n) *n = 0; return NULL; }
+int glXHyperpipeConfigSGIX(Display *d, int net, int n, GLXHyperpipeConfigSGIX *cfg, int *id) { (void)d; (void)net; (void)n; (void)cfg; (void)id; return GLX_BAD_HYPERPIPE_CONFIG_SGIX; }
+int glXDestroyHyperpipeConfigSGIX(Display *d, int id) { (void)d; (void)id; return GLX_BAD_HYPERPIPE_SGIX; }
+GLXHyperpipeConfigSGIX *glXQueryHyperpipeConfigSGIX(Display *d, int id, int *n) { (void)d; (void)id; if (n) *n = 0; return NULL; }
+int glXBindHyperpipeSGIX(Display *d, int id) { (void)d; (void)id; return GLX_BAD_HYPERPIPE_SGIX; }
+int glXQueryHyperpipeBestAttribSGIX(Display *d, int t, int a, int s, void *l, void *r) { (void)d; (void)t; (void)a; (void)s; (void)l; (void)r; return GLX_BAD_HYPERPIPE_SGIX; }
+int glXQueryHyperpipeAttribSGIX(Display *d, int t, int a, int s, void *r) { (void)d; (void)t; (void)a; (void)s; (void)r; return GLX_BAD_HYPERPIPE_SGIX; }
+int glXHyperpipeAttribSGIX(Display *d, int t, int a, int s, void *l) { (void)d; (void)t; (void)a; (void)s; (void)l; return GLX_BAD_HYPERPIPE_SGIX; }
+void glXBindSwapBarrierSGIX(Display *d, GLXDrawable dr, int b) { (void)d; (void)dr; (void)b; }
+Bool glXQueryMaxSwapBarriersSGIX(Display *d, int s, int *max) { (void)d; (void)s; if (max) *max = 0; return False; }
+/* Their prototypes need the video and digital-media headers, which this
+ * file doesn't include: a VLServer and DMparams/DMbuffer are pointers,
+ * VLPath and VLNode ints. */
+GLXVideoSourceSGIX glXCreateGLXVideoSourceSGIX(Display *d, int s, void *svr, int path, int nc, int node) { (void)d; (void)s; (void)svr; (void)path; (void)nc; (void)node; return None; }
+void glXDestroyGLXVideoSourceSGIX(Display *d, GLXVideoSourceSGIX v) { (void)d; (void)v; }
+/* An O2 digital-media pbuffer shares its pixels with a DMbuffer. Here a
+ * pbuffer is the host's, and the DMbuffer stays apart: what the program
+ * draws and reads back through GL works (vrp2DO2 does just that), what it
+ * reads from the DMbuffer directly does not. */
+Bool glXAssociateDMPbufferSGIX(Display *d, GLXPbufferSGIX p, void *params, void *buf) { (void)d; (void)params; (void)buf; return pbuffer_of(p) >= 0; }
+/* SGI-internal float variants (no glx.h declares them): the float
+ * attributes are ignored, and none are answered. */
+GLXFBConfigSGIX *glXChooseFBConfigWithFltSGIX(Display *d, int s, int *a, float *fa, int *n) { (void)fa; return glXChooseFBConfigSGIX(d, s, a, n); }
+int glXGetFBConfigFltAttribSGIX(Display *d, GLXFBConfigSGIX c, int a, float *v) { (void)d; (void)c; (void)a; (void)v; return GLX_BAD_ATTRIBUTE; }

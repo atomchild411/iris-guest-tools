@@ -336,7 +336,8 @@ void glPixelTransformSGI(GLenum t) { (void)t; }
 
 /* SGIS_fog_function: the points are the host's, which has no such fog;
  * none come back. */
-void glGetFogFuncSGIS(GLfloat *points) { (void)points; }
+/* (const: 6.5.22's gl.h declares it so) */
+void glGetFogFuncSGIS(const GLfloat *points) { (void)points; }
 
 /* SGIS_texture_color_mask: the host masks colours as a whole. */
 void glTextureColorMaskSGIS(GLboolean r, GLboolean g, GLboolean b, GLboolean a) { (void)r; (void)g; (void)b; (void)a; }

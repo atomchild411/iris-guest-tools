@@ -132,6 +132,35 @@ void hgl_layers_free(struct hgl_layers *L, Display *d);
 /* glEnable/glDisable for the states a layer is drawn without (z-buffer,
  * lighting, texture, fog, blending, alpha test): see irisgl_extra.c. */
 void hgl_enable(GLenum cap, int on);
+/* Turn a cap off for a moment if the program has it on (hgl_resume turns it
+ * back on): old-style polygons are never textured or fogged. */
+int hgl_suspend(GLenum cap);
+void hgl_resume(GLenum cap, int was);
+
+/* A polygon's vertex with what it carries. */
+struct hgl_vtx {
+	float v[3], n[3], t[2], c[4];
+};
+#define HGL_VTX_COLOUR 1	/* send each vertex's colour */
+#define HGL_VTX_NT 2		/* ... and its normal and texture coordinate */
+/* Fill a polygon, tessellated when concave; lighting is already set and no
+ * glBegin is open. */
+void hgl_polygon_fill(const struct hgl_vtx *p, int n, int what, int concave);
+/* Draw an old-style polygon (polf, rectf, circf, pmv ...): see irisgl_extra.c. */
+void hgl_old_polygon(const struct hgl_vtx *p, int n, int what);
+extern int hgl_concave;
+/* Set lighting for drawing that does not go through hgl_begin. */
+void hgl_lighting_sync(void);
+/* depthcue (irisgl_draw.c) and the stencil ops that follow zbuffer. */
+extern int hgl_depthcue;
+void hgl_depthcue_update(void);
+void hgl_stencil_ops(void);
+/* An object's list is being compiled (makeobj); fonts build their lists
+ * beforehand (hgl_fonts_prepare). */
+extern int hgl_compiling;
+void hgl_fonts_prepare(void);
+/* The last pixel of an open line (subpixel FALSE draws lines closed). */
+void hgl_line_end(const float v[3]);
 /* The X server's overlay visual (GLX_LEVEL 1) on the library's own
  * connection, or NULL: then the layers are drawn into the normal planes. */
 XVisualInfo *hgl_overlay_visual(void);

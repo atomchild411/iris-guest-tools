@@ -137,6 +137,9 @@ font0_ready(void)
 	hgl_iris_ensure();
 	if (font0_lists)
 		return 1;
+	/* lists can't be built while an object's list is being compiled */
+	if (hgl_compiling)
+		return 0;
 	d = hgl_display();
 	for (i = 0; names[i] != NULL && font0 == NULL; i++)
 		font0 = XLoadQueryFont(d, names[i]);
@@ -156,7 +159,7 @@ font_ready(RasterFont *f)
 	hgl_iris_ensure();
 	if (f->lists)
 		return 1;
-	if (f->nc <= 0)
+	if (f->nc <= 0 || hgl_compiling)
 		return 0;
 	f->lists = glGenLists(f->nc);
 	if (f->lists == 0)
@@ -225,6 +228,19 @@ defrasterfont(short n, short ht, short nc, const Fontchar chars[], short nr,
 		if (chars[i].yoff < 0 && -chars[i].yoff > f->descent)
 			f->descent = -chars[i].yoff;
 	f->defined = 1;
+}
+
+/* Every font's lists, built now: makeobj calls it, since text drawn into
+ * an object can't build them once the object's list is open. */
+void
+hgl_fonts_prepare(void)
+{
+	int i;
+
+	font0_ready();
+	for (i = 1; i < MAXFONT; i++)
+		if (fonts[i].defined)
+			font_ready(&fonts[i]);
 }
 
 void

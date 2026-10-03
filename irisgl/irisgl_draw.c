@@ -138,6 +138,7 @@ zbuffer(Boolean on)
 		hgl_enable(GL_DEPTH_TEST, 1);
 	else
 		hgl_enable(GL_DEPTH_TEST, 0);
+	hgl_stencil_ops();
 }
 
 /*
@@ -146,6 +147,9 @@ zbuffer(Boolean on)
  * of the depth test. OpenGL's is 0 .. 1, so both ends are scaled by the range
  * getgdesc(GD_ZMAX) reports, which is the same number the program read.
  */
+/* The depth range lsetdepth set, as OpenGL's 0 .. 1 (for depthcue). */
+static double depth_n = 0.0, depth_f = 1.0;
+
 void
 lsetdepth(long near, long far)
 {
@@ -155,7 +159,10 @@ lsetdepth(long near, long far)
 	hgl_iris_ensure();
 	sprintf(buf, "lsetdepth %ld %ld", (long)near, (long)far);
 	hgl_irisgl_trace(buf);
-	glDepthRange((double)near / scale, (double)far / scale);
+	depth_n = (double)near / scale;
+	depth_f = (double)far / scale;
+	glDepthRange(depth_n, depth_f);
+	hgl_depthcue_update();
 }
 
 
@@ -176,12 +183,51 @@ cpack(unsigned long v)
 
 /* For the trace: the first vertices of each primitive, with what they carry. */
 static int block_verts;
-void bgnpolygon(void) { TRACE("bgnpolygon"); hgl_begin(GL_POLYGON); }
-void endpolygon(void) { TRACE("endpolygon"); glEnd(); }
+/* What the primitive being drawn was begun as. */
+static GLenum prim_mode;
 /* The current normal and texture coordinate, which swaptmesh's repeated
  * vertices need (see there). */
 static float cur_n[3] = { 0.0f, 0.0f, 1.0f };
 static float cur_t[2];
+/* While concave(TRUE), a polygon's vertices are kept until endpolygon,
+ * which tessellates it (hgl_polygon_fill). */
+static int poly_keep;
+static struct hgl_vtx *pkv;
+static int pkn, pkcap;
+
+void
+bgnpolygon(void)
+{
+	TRACE("bgnpolygon");
+	if (!hgl_concave) {
+		hgl_begin(GL_POLYGON);
+		return;
+	}
+	hgl_iris_ensure();
+	hgl_lighting_sync();
+	prim_mode = GL_POLYGON;
+	block_verts = 0;
+	poly_keep = 1;
+	pkn = 0;
+}
+
+void
+endpolygon(void)
+{
+	float c[4];
+
+	TRACE("endpolygon");
+	if (!poly_keep) {
+		glEnd();
+		return;
+	}
+	poly_keep = 0;
+	hgl_polygon_fill(pkv, pkn, HGL_VTX_COLOUR | HGL_VTX_NT, 1);
+	hgl_current_colour(c);
+	glColor4fv(c);
+	glNormal3fv(cur_n);
+	glTexCoord2fv(cur_t);
+}
 
 void
 n3f(const float v[3])
@@ -250,6 +296,7 @@ hgl_projection_end(void)
 		glMatrixMode(GL_MODELVIEW);
 	else if (hgl_iris.mmode == MTEXTURE)
 		glMatrixMode(GL_TEXTURE);
+	hgl_depthcue_update();
 }
 
 /*
@@ -462,8 +509,6 @@ lighting_wanted(void)
 	return bound_material && bound_lmodel && !(colour_last && hgl_lmcolor_mode == LMC_COLOR);
 }
 
-/* What the primitive being drawn was begun as. */
-static GLenum prim_mode;
 
 static void
 update_lighting_enable(void)
@@ -471,6 +516,8 @@ update_lighting_enable(void)
 	prim_lit = lighting_wanted();
 	hgl_enable(GL_LIGHTING, prim_lit);
 }
+
+void hgl_lighting_sync(void) { update_lighting_enable(); }
 
 /*
  * Every primitive starts here. OpenGL lights a primitive whole or not at
@@ -737,6 +784,8 @@ static GLuint texnames[MAXDEF];
  * both start unbound.
  */
 static int tex_bound, tev_bound;
+/* Which texture coordinates the program generates (texgen TG_ON). */
+static int texgen_on[4];
 
 /*
  * What props says about the texture: wrap modes, filters, and whether the
@@ -989,9 +1038,11 @@ texgen(long coord, long mode, const float params[])
 	c = coords[coord];
 	switch (mode) {
 	case TG_OFF:
+		texgen_on[coord] = 0;
 		glDisable(gens[coord]);
 		break;
 	case TG_ON:
+		texgen_on[coord] = 1;
 		glEnable(gens[coord]);
 		break;
 	case TG_LINEAR:
@@ -1020,7 +1071,44 @@ texgen(long coord, long mode, const float params[])
 
 /* IRIS GL's primitives, each an OpenGL one. */
 void bgnline(void) { hgl_begin(GL_LINE_STRIP); }
-void endline(void) { glEnd(); }
+/* The two vertices a triangle mesh keeps (see swaptmesh); the newer is
+ * also the last vertex of any primitive. */
+struct tmesh_vertex {
+	float v[3], n[3], t[2], c[4];
+};
+static struct tmesh_vertex tmesh_a, tmesh_b;	/* the older, the newer */
+
+/*
+ * Lines are drawn closed while subpixel is FALSE, the default: both ends
+ * of a line are drawn, so a line from (0,0) to (0,2) fills three pixels
+ * (subpixel(3G)). OpenGL leaves out the last pixel of a strip; a point
+ * there puts it back -- for solid, unsmoothed lines, which are the ones
+ * that care where their ends fall.
+ */
+int hgl_subpixel;
+static int line_smooth;
+
+void
+hgl_line_end(const float v[3])
+{
+	if (hgl_subpixel || line_smooth || getlstyle() != 0)
+		return;
+	glPushAttrib(GL_POINT_BIT);
+	glPointSize(hgl_line_width);
+	glDisable(GL_POINT_SMOOTH);
+	glBegin(GL_POINTS);
+	glVertex3fv(v);
+	glEnd();
+	glPopAttrib();
+}
+
+void
+endline(void)
+{
+	glEnd();
+	if (prim_mode == GL_LINE_STRIP && block_verts >= 2)
+		hgl_line_end(tmesh_b.v);
+}
 void bgnclosedline(void) { hgl_begin(GL_LINE_LOOP); }
 void endclosedline(void) { glEnd(); }
 void bgnpoint(void) { hgl_begin(GL_POINTS); }
@@ -1048,10 +1136,6 @@ void endqstrip(void) { glEnd(); }
  * coordinate, as they were given, or the repeated ones would be lit and
  * coloured with whatever came last.
  */
-struct tmesh_vertex {
-	float v[3], n[3], t[2], c[4];
-};
-static struct tmesh_vertex tmesh_a, tmesh_b;	/* the older, the newer */
 
 static void
 tmesh_put(const struct tmesh_vertex *p)
@@ -1101,6 +1185,24 @@ v3f(const float v[3])
 		tmesh_n++;
 	else
 		tmesh_odd ^= 1;		/* a triangle was made */
+	if (poly_keep) {
+		if (block_verts++ == 0 && lighting_wanted() != prim_lit)
+			hgl_lighting_sync();
+		if (pkn == pkcap) {
+			int cap = pkcap ? pkcap * 2 : 64;
+			struct hgl_vtx *p = realloc(pkv, cap * sizeof *p);
+			if (p == NULL)
+				return;
+			pkv = p;
+			pkcap = cap;
+		}
+		memcpy(pkv[pkn].v, v, sizeof pkv[pkn].v);
+		memcpy(pkv[pkn].n, cur_n, sizeof pkv[pkn].n);
+		memcpy(pkv[pkn].t, cur_t, sizeof pkv[pkn].t);
+		hgl_current_colour(pkv[pkn].c);
+		pkn++;
+		return;
+	}
 	if (block_verts == 0 && lighting_wanted() != prim_lit) {
 		/* nothing drawn yet: begin again, lit or not as it now is */
 		glEnd();
@@ -1284,6 +1386,12 @@ mapcolor(Colorindex i, short r, short g, short b)
 		cmap[i][0] = r / 255.0f;
 		cmap[i][1] = g / 255.0f;
 		cmap[i][2] = b / 255.0f;
+		/* the current index shows the new colour too (mapcolor(3G)) */
+		if (!hgl_iris.want_rgb && i == (Colorindex)hgl_colour_index) {
+			int was = colour_last;
+			hgl_set_colour(cmap[i][0], cmap[i][1], cmap[i][2], 1.0f);
+			colour_last = was;
+		}
 	}
 }
 
@@ -1432,8 +1540,10 @@ linesmooth(unsigned long on)
 		 * (linesmooth(3G)); turning blending on here brought back
 		 * whatever function was set last */
 		glEnable(GL_LINE_SMOOTH);
+		line_smooth = 1;
 	} else {
 		glDisable(GL_LINE_SMOOTH);
+		line_smooth = 0;
 	}
 }
 
@@ -1461,43 +1571,18 @@ rotate(Angle a, char axis)
 	    axis == 'y' || axis == 'Y', axis == 'z' || axis == 'Z');
 }
 
-/*
- * IRIS GL fills every pixel on a rectangle's boundary. OpenGL's fill rule
- * leaves out the ones on two of its edges, which a program drawing in window
- * pixels -- bars, buttons, panels -- shows as a missing row and column. A
- * one-pixel outline over the filled rectangle puts them back, whatever the
- * transformation. Not while blending, where the pixels the fill covered
- * would be blended twice.
- */
+/* rectf is an old-style polygon: see hgl_old_polygon. */
 void
 rectf(Coord x1, Coord y1, Coord x2, Coord y2)
 {
-	hgl_iris_ensure();
-	update_lighting_enable();
-	glRectf(x1, y1, x2, y2);
-	if (hgl_iris.blend)
-		return;
-	glPushAttrib(GL_LINE_BIT | GL_POINT_BIT);
-	glLineWidth(1.0f);
-	glDisable(GL_LINE_STIPPLE);
-	glDisable(GL_LINE_SMOOTH);
-	glBegin(GL_LINE_LOOP);
-	glVertex2f(x1, y1);
-	glVertex2f(x2, y1);
-	glVertex2f(x2, y2);
-	glVertex2f(x1, y2);
-	glEnd();
-	/* A line leaves out the pixel it ends on, and the host's the one it
-	 * starts on too: the corners are points of their own. */
-	glPointSize(1.0f);
-	glDisable(GL_POINT_SMOOTH);
-	glBegin(GL_POINTS);
-	glVertex2f(x1, y1);
-	glVertex2f(x2, y1);
-	glVertex2f(x2, y2);
-	glVertex2f(x1, y2);
-	glEnd();
-	glPopAttrib();
+	struct hgl_vtx v[4];
+
+	memset(v, 0, sizeof v);
+	v[0].v[0] = x1; v[0].v[1] = y1;
+	v[1].v[0] = x2; v[1].v[1] = y1;
+	v[2].v[0] = x2; v[2].v[1] = y2;
+	v[3].v[0] = x1; v[3].v[1] = y2;
+	hgl_old_polygon(v, 4, 0);
 }
 
 void
@@ -1544,15 +1629,261 @@ rectfs(short x1, short y1, short x2, short y2)
 
 
 /*
- * Display lists. IRIS GL names an object with a number the program either
- * chooses or asks genobj for, which is what glGenLists does.
+ * Objects (makeobj(3G), callobj(3G)) as OpenGL display lists.
+ *
+ * IRIS GL names an object with any number the program picks; each gets a
+ * list of its own from glGenLists, through a table, so the numbers never
+ * meet the lists this library makes for itself (fonts).
+ *
+ * An IRIS GL object records calls and makes them at callobj. A GL list
+ * records only GL commands, and what this library keeps on its own side --
+ * the current colour, the lighting and texture bindings, the enables --
+ * would change while the object is *built* and never when it is called. So
+ * makeobj saves that state and closeobj puts it back, keeping what the
+ * object changed, which callobj then applies, as if the calls had been
+ * made there.
  */
-Object genobj(void) { hgl_iris_ensure(); return (Object)glGenLists(1); }
-void makeobj(Object o) { hgl_iris_ensure(); glNewList((GLuint)o, GL_COMPILE); }
-void closeobj(void) { glEndList(); }
-void callobj(Object o) { hgl_irisgl_tracef("callobj %ld", (long)o); hgl_iris_ensure(); glCallList((GLuint)o); }
-void delobj(Object o) { hgl_iris_ensure(); glDeleteLists((GLuint)o, 1); }
-long isobj(Object o) { hgl_iris_ensure(); return glIsList((GLuint)o); }
+struct cstate {
+	float colour[4];
+	long index;
+	int colour_last;
+	long lmcolor_mode;
+	short material, backmaterial, lmodel, light[MAXLIGHTS];
+	int tex, tev;
+	int blend;
+	unsigned enables;
+	float line_width;
+	long shade;
+	int depthcue, concave, oldpolygon;
+};
+enum {
+	CS_COLOUR = 1, CS_LMCOLOR = 2, CS_MATERIAL = 4, CS_LMODEL = 8, CS_LIGHTS = 16,
+	CS_TEX = 32, CS_BLEND = 64, CS_ENABLES = 128, CS_LINE = 256, CS_SHADE = 512,
+	CS_DEPTHCUE = 1024, CS_POLY = 2048
+};
+extern int hgl_oldpolygon;
+
+static void
+cstate_get(struct cstate *c)
+{
+	memset(c, 0, sizeof *c);
+	c->colour[0] = cur_r; c->colour[1] = cur_g; c->colour[2] = cur_b; c->colour[3] = cur_a;
+	c->index = hgl_colour_index;
+	c->colour_last = colour_last;
+	c->lmcolor_mode = hgl_lmcolor_mode;
+	c->material = bound_material;
+	c->backmaterial = bound_backmaterial;
+	c->lmodel = bound_lmodel;
+	memcpy(c->light, bound_light, sizeof c->light);
+	c->tex = tex_bound;
+	c->tev = tev_bound;
+	c->blend = hgl_iris.blend;
+	c->enables = hgl_iris.enables;
+	c->line_width = hgl_line_width;
+	c->shade = hgl_shade_model;
+	c->depthcue = hgl_depthcue;
+	c->concave = hgl_concave;
+	c->oldpolygon = hgl_oldpolygon;
+}
+
+/* Set the parts of state named by `what` from c: this library's record
+ * only -- the GL commands are in the list. */
+static void
+cstate_put(const struct cstate *c, unsigned what)
+{
+	if (what & CS_COLOUR) {
+		cur_r = c->colour[0]; cur_g = c->colour[1]; cur_b = c->colour[2]; cur_a = c->colour[3];
+		hgl_colour_index = c->index;
+		colour_last = c->colour_last;
+		hgl_colour_serial++;
+	}
+	if (what & CS_LMCOLOR)
+		hgl_lmcolor_mode = c->lmcolor_mode;
+	if (what & CS_MATERIAL) {
+		bound_material = c->material;
+		bound_backmaterial = c->backmaterial;
+	}
+	if (what & CS_LMODEL)
+		bound_lmodel = c->lmodel;
+	if (what & CS_LIGHTS)
+		memcpy(bound_light, c->light, sizeof bound_light);
+	if (what & CS_TEX) {
+		tex_bound = c->tex;
+		tev_bound = c->tev;
+	}
+	if (what & CS_BLEND)
+		hgl_iris.blend = c->blend;
+	if (what & CS_ENABLES)
+		hgl_iris.enables = c->enables;
+	if (what & CS_LINE)
+		hgl_line_width = c->line_width;
+	if (what & CS_SHADE)
+		hgl_shade_model = c->shade;
+	if (what & CS_DEPTHCUE)
+		hgl_depthcue = c->depthcue;
+	if (what & CS_POLY) {
+		hgl_concave = c->concave;
+		hgl_oldpolygon = c->oldpolygon;
+	}
+}
+
+/* Which parts differ between a and b. */
+static unsigned
+cstate_diff(const struct cstate *a, const struct cstate *b)
+{
+	unsigned d = 0;
+
+	if (memcmp(a->colour, b->colour, sizeof a->colour) || a->index != b->index ||
+	    a->colour_last != b->colour_last)
+		d |= CS_COLOUR;
+	if (a->lmcolor_mode != b->lmcolor_mode) d |= CS_LMCOLOR;
+	if (a->material != b->material || a->backmaterial != b->backmaterial) d |= CS_MATERIAL;
+	if (a->lmodel != b->lmodel) d |= CS_LMODEL;
+	if (memcmp(a->light, b->light, sizeof a->light)) d |= CS_LIGHTS;
+	if (a->tex != b->tex || a->tev != b->tev) d |= CS_TEX;
+	if (a->blend != b->blend) d |= CS_BLEND;
+	if (a->enables != b->enables) d |= CS_ENABLES;
+	if (a->line_width != b->line_width) d |= CS_LINE;
+	if (a->shade != b->shade) d |= CS_SHADE;
+	if (a->depthcue != b->depthcue) d |= CS_DEPTHCUE;
+	if (a->concave != b->concave || a->oldpolygon != b->oldpolygon) d |= CS_POLY;
+	return d;
+}
+
+struct object {
+	long id;		/* 0: free */
+	GLuint list;
+	unsigned changes;	/* what calling it changes, ... */
+	struct cstate after;	/* ... to this */
+};
+static struct object *objs;
+static int nobjs, objcap;
+int hgl_compiling;
+static struct object *open_obj;
+static struct cstate before_obj;
+
+/* The last slot each id hashed to: callobj runs every frame, often
+ * thousands of times. */
+static int obj_cache[1024];
+
+static struct object *
+obj_find(long id)
+{
+	int i, h = (int)(id & 1023);
+
+	if (id == 0)
+		return NULL;
+	i = obj_cache[h];
+	if (i < nobjs && objs[i].id == id)
+		return &objs[i];
+	for (i = 0; i < nobjs; i++)
+		if (objs[i].id == id) {
+			obj_cache[h] = i;
+			return &objs[i];
+		}
+	return NULL;
+}
+
+static struct object *
+obj_make(long id)
+{
+	struct object *o = obj_find(id);
+	int i;
+
+	if (o != NULL)
+		return o;
+	for (i = 0; i < nobjs; i++)
+		if (objs[i].id == 0)
+			break;
+	if (i == nobjs) {
+		if (nobjs == objcap) {
+			int cap = objcap ? objcap * 2 : 64;
+			struct object *p = realloc(objs, cap * sizeof *p);
+			if (p == NULL)
+				return NULL;
+			objs = p;
+			objcap = cap;
+		}
+		nobjs++;
+	}
+	o = &objs[i];
+	memset(o, 0, sizeof *o);
+	o->id = id;
+	o->list = glGenLists(1);
+	return o;
+}
+
+/* genobj(3G): a number no object has. */
+Object
+genobj(void)
+{
+	static long next = 1;
+
+	hgl_iris_ensure();
+	while (obj_find(next) != NULL)
+		next++;
+	return (Object)next++;
+}
+
+void
+makeobj(Object id)
+{
+	hgl_irisgl_tracef("makeobj %ld", (long)id);
+	hgl_iris_ensure();
+	if (hgl_compiling)
+		closeobj();
+	hgl_fonts_prepare();
+	if ((open_obj = obj_make((long)id)) == NULL)
+		return;
+	cstate_get(&before_obj);
+	hgl_compiling = 1;
+	glNewList(open_obj->list, GL_COMPILE);
+}
+
+void
+closeobj(void)
+{
+	if (!hgl_compiling)
+		return;
+	glEndList();
+	hgl_compiling = 0;
+	if (open_obj != NULL) {
+		cstate_get(&open_obj->after);
+		open_obj->changes = cstate_diff(&before_obj, &open_obj->after);
+		cstate_put(&before_obj, ~0u);
+		open_obj = NULL;
+	}
+}
+
+void
+callobj(Object id)
+{
+	struct object *o;
+
+	hgl_irisgl_tracef("callobj %ld", (long)id);
+	hgl_iris_ensure();
+	if ((o = obj_find((long)id)) == NULL)
+		return;
+	glCallList(o->list);
+	cstate_put(&o->after, o->changes);
+}
+
+void
+delobj(Object id)
+{
+	struct object *o;
+
+	hgl_iris_ensure();
+	if ((o = obj_find((long)id)) == NULL)
+		return;
+	glDeleteLists(o->list, 1);
+	o->id = 0;
+}
+
+long isobj(Object id) { return obj_find((long)id) != NULL; }
+
+/* getopenobj(3G): the object being made, or -1. */
+Object getopenobj(void) { return hgl_compiling && open_obj != NULL ? (Object)open_obj->id : (Object)-1; }
 
 /* ---- viewport ---- */
 
@@ -1700,6 +2031,136 @@ getmcolor(Colorindex i, short *r, short *g, short *b)
 	*g = (short)(cmap[i][1] * 255.0f + 0.5f);
 	*b = (short)(cmap[i][2] * 255.0f + 0.5f);
 	hgl_irisgl_tracef("getmcolor %d -> %d %d %d", i, *r, *g, *b);
+}
+
+/* ---- depthcue ----
+ *
+ * depthcue(3G), lRGBrange(3G), lshaderange(3G): while depthcue is on, a
+ * pixel's colour comes from its screen z alone, the max colour at znear
+ * running linearly to the min colour at zfar and clamped beyond; colour
+ * commands do not change it. That is a one-dimensional texture of the
+ * ramp, replacing the colour, with its coordinate generated linearly from
+ * eye z (zfar and znear turned into eye z through the depth range and the
+ * projection): exact under an orthographic projection, linear in eye z
+ * rather than screen z under a perspective one. (Fog can't do it: it
+ * measures distance from the eye, and the default orthographic range puts
+ * the eye in the middle of the scene.)
+ */
+int hgl_depthcue;
+static float dc_min[4] = { 0.0f, 0.0f, 0.0f, 1.0f }, dc_max[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+static long dc_znear = 0, dc_zfar = 0x7fffff;
+static GLuint dc_tex;
+static int dc_tex2d;
+
+/* Screen z to eye z. */
+static double
+dc_eye_z(long z, const GLfloat *p)
+{
+	double d = (double)z / (double)0x7fffff, ndc, den;
+
+	ndc = depth_f != depth_n ? 2.0 * (d - depth_n) / (depth_f - depth_n) - 1.0 : 0.0;
+	/* z_ndc = (p10 ze + p14) / (p11 ze + p15) */
+	den = ndc * p[11] - p[10];
+	return den != 0.0 ? (p[14] - ndc * p[15]) / den : 0.0;
+}
+
+void
+hgl_depthcue_update(void)
+{
+	GLfloat p[16], plane[4];
+	GLubyte ramp[256][4];
+	double zn, zf;
+	int i, k;
+
+	if (!hgl_depthcue)
+		return;
+	glGetFloatv(GL_PROJECTION_MATRIX, p);
+	zn = dc_eye_z(dc_znear, p);
+	zf = dc_eye_z(dc_zfar, p);
+	for (i = 0; i < 256; i++)
+		for (k = 0; k < 4; k++)
+			ramp[i][k] = (GLubyte)(255.0f * (dc_max[k] + (dc_min[k] - dc_max[k]) * i / 255.0f) + 0.5f);
+	if (dc_tex == 0)
+		glGenTextures(1, &dc_tex);
+	glBindTexture(GL_TEXTURE_1D, dc_tex);
+	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, ramp);
+	/* s = (ze - zn) / (zf - zn), the plane given in eye space */
+	plane[0] = plane[1] = 0.0f;
+	plane[2] = zf != zn ? (float)(1.0 / (zf - zn)) : 0.0f;
+	plane[3] = zf != zn ? (float)(-zn / (zf - zn)) : 0.0f;
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_EYE_LINEAR);
+	glTexGenfv(GL_S, GL_EYE_PLANE, plane);
+	glPopMatrix();
+	if (hgl_iris.mmode == MPROJECTION)
+		glMatrixMode(GL_PROJECTION);
+	else if (hgl_iris.mmode == MTEXTURE)
+		glMatrixMode(GL_TEXTURE);
+	glEnable(GL_TEXTURE_GEN_S);
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+	glEnable(GL_TEXTURE_1D);
+}
+
+void
+depthcue(Boolean on)
+{
+	hgl_irisgl_tracef("depthcue %d", (int)on);
+	hgl_iris_ensure();
+	if ((on != 0) == hgl_depthcue)
+		return;
+	hgl_depthcue = on != 0;
+	if (hgl_depthcue) {
+		dc_tex2d = hgl_suspend(GL_TEXTURE_2D);
+		hgl_depthcue_update();
+		return;
+	}
+	glDisable(GL_TEXTURE_1D);
+	if (!texgen_on[0])
+		glDisable(GL_TEXTURE_GEN_S);
+	if (tev_bound)
+		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, tevs[tev_bound].mode);
+	hgl_resume(GL_TEXTURE_2D, dc_tex2d);
+}
+
+Boolean getdcm(void) { return (Boolean)hgl_depthcue; }
+
+void
+lRGBrange(short rmin, short gmin, short bmin, short rmax, short gmax, short bmax, long znear, long zfar)
+{
+	hgl_iris_ensure();
+	dc_min[0] = rmin / 255.0f; dc_min[1] = gmin / 255.0f; dc_min[2] = bmin / 255.0f;
+	dc_max[0] = rmax / 255.0f; dc_max[1] = gmax / 255.0f; dc_max[2] = bmax / 255.0f;
+	dc_znear = znear;
+	dc_zfar = zfar;
+	hgl_depthcue_update();
+}
+
+void
+RGBrange(short rmin, short gmin, short bmin, short rmax, short gmax, short bmax, Screencoord znear, Screencoord zfar)
+{
+	lRGBrange(rmin, gmin, bmin, rmax, gmax, bmax, znear, zfar);
+}
+
+/* In colour-map mode the range is of indices: their colours, here. */
+void
+lshaderange(Colorindex low, Colorindex high, long znear, long zfar)
+{
+	unsigned char lo[3], hi[3];
+
+	hgl_cmap_rgb(low, lo);
+	hgl_cmap_rgb(high, hi);
+	lRGBrange(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], znear, zfar);
+}
+
+void
+shaderange(Colorindex low, Colorindex high, Screencoord znear, Screencoord zfar)
+{
+	lshaderange(low, high, znear, zfar);
 }
 
 /* ---- fog ----

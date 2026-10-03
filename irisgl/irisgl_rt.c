@@ -971,7 +971,9 @@ hgl_iris_pump(int block)
 long
 winopen(String name)
 {
-	long gid, prev = hgl_iris.gid;
+	static int opened_one;
+	long gid;
+	int first = !opened_one;
 
 	TRACE("winopen");
 	if ((gid = new_slot()) < 0)
@@ -986,8 +988,10 @@ winopen(String name)
 	(void)hgl_layer_suspend();
 	save_current();
 	/* The configuration a program set before its first window carries into
-	 * it; a later window starts from IRIS GL's defaults. */
-	if (prev > 0) {
+	 * it; every later window starts from IRIS GL's defaults, whether or not
+	 * the others are still open. */
+	opened_one = 1;
+	if (!first) {
 		hgl_iris.want_rgb = hgl_iris.want_double = 0;
 		hgl_iris.want_ms = 0;
 		hgl_iris.want_zbuf = 1;
@@ -1168,7 +1172,9 @@ void mssize(long s, long z, long c) { hgl_iris.want_ms = (int)s; (void)z; (void)
  * refused to run ("must have a z-buffer") while the default here was none.
  */
 void zbsize(long n) { hgl_iris.want_zbuf = n > 0; zbsize_given = 1; }
-void subpixel(Boolean b) { (void)b; /* always on here */ }
+/* subpixel(3G): OpenGL always places vertices subpixel; what the flag
+ * still changes here is whether lines are drawn closed (hgl_line_end). */
+void subpixel(Boolean b) { extern int hgl_subpixel; hgl_subpixel = b != 0; }
 
 void
 gconfig(void)
@@ -1532,7 +1538,15 @@ getscrmask(Screencoord *l, Screencoord *r, Screencoord *b, Screencoord *t)
  * semantics to restore -- so they are accepted and ignored rather than
  * refused, which is what a program checks for.
  */
-void glcompat(long mode, long value) { (void)mode; (void)value; }
+void
+glcompat(long mode, long value)
+{
+	extern int hgl_oldpolygon;
+
+	/* GLC_OLDPOLYGON: old-style polygons (see hgl_old_polygon) */
+	if (mode == GLC_OLDPOLYGON)
+		hgl_oldpolygon = value != 0;
+}
 
 /* Input tuning with nothing underneath it: X delivers what it delivers. */
 void

@@ -125,6 +125,8 @@ HANDWRITTEN = {
     # --- picking and selecting (irisgl_extra.c): UroMan picks its organs ---
     "pick", "endpick", "gselect", "endselect", "picksize",
     "blendcolor",
+    "lRGBrange", "RGBrange", "lshaderange", "shaderange",
+    "getopenobj",
     "initnames", "loadname", "pushname", "popname",
     # --- NURBS curves and surfaces, through GLU (irisgl_nurbs.c): powerflip ---
     "bgnsurface", "endsurface", "nurbssurface", "bgntrim", "endtrim", "pwlcurve",

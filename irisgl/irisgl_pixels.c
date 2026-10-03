@@ -117,10 +117,19 @@ readsource(long src)
  * position outside the window is reached by moving a valid one with a bitmap
  * of no pixels, which OpenGL allows and which keeps the position valid.
  */
+/* What raster_at turned off: IRIS GL's pixel writes are not textured,
+ * fogged or lit, and OpenGL would do all three to glDrawPixels's fragments
+ * (an image written while a texture is bound came out as one texel). */
+static int raster_tex, raster_fog, raster_lit;
+
 static void
 raster_at(int x, int y)
 {
 	int w = hgl_iris.w > 0 ? hgl_iris.w : 1, h = hgl_iris.h > 0 ? hgl_iris.h : 1;
+
+	raster_tex = hgl_suspend(GL_TEXTURE_2D);
+	raster_fog = hgl_suspend(GL_FOG);
+	raster_lit = hgl_suspend(GL_LIGHTING);
 
 	glPushAttrib(GL_TRANSFORM_BIT | GL_VIEWPORT_BIT);
 	glViewport(0, 0, w, h);
@@ -148,6 +157,9 @@ raster_done(void)
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();
 	glPopAttrib();
+	hgl_resume(GL_LIGHTING, raster_lit);
+	hgl_resume(GL_FOG, raster_fog);
+	hgl_resume(GL_TEXTURE_2D, raster_tex);
 }
 
 /* Corners in either order: the lower left, and the size. */

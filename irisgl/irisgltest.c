@@ -228,6 +228,15 @@ t_cmode(void)
 	readpixels(1, &ci);
 	sprintf(what, "color + clear in colour map mode, read back as an index: %d", (int)ci);
 	check(what, ci == 9);
+
+	/* mapcolor of the current index changes what it draws (mapcolor(3G)) */
+	color(40);
+	mapcolor(40, 10, 20, 250);
+	clear();
+	cmov2i(5, 5);
+	readpixels(1, &ci);
+	sprintf(what, "mapcolor of the current index, then clear: index %d", (int)ci);
+	check(what, ci == 40);
 	winclose(gid);
 }
 
@@ -846,6 +855,189 @@ t_blendfactors(void)
 	winclose(gid);
 }
 
+/* Old-style polygons (GLPG-I 2-20): filled shapes but bgnpolygon's fill
+ * their top and right edge pixels too, unless glcompat(GLC_OLDPOLYGON, 0). */
+static void
+t_oldpolygon(void)
+{
+	static Icoord sq[4][2] = { { 10, 10 }, { 19, 10 }, { 19, 19 }, { 10, 19 } };
+	/* a U: the notch between x 24..36 above y 30 must stay empty */
+	static Coord u[8][2] = {
+		{ 10, 10 }, { 50, 10 }, { 50, 50 }, { 40, 50 }, { 40, 30 }, { 20, 30 }, { 20, 50 }, { 10, 50 }
+	};
+	long gid = rgb_window("irisgltest oldpolygon");
+	unsigned long p;
+	char what[96];
+	int i;
+
+	cpack(C_RED);
+	polf2i(4, sq);
+	sprintf(what, "polf fills its top right pixel (19,19): %06lx", pix(19, 19));
+	check(what, pix(19, 19) == C_RED && pix(20, 20) == C_BLACK);
+	cpack(C_BLACK);
+	clear();
+	glcompat(GLC_OLDPOLYGON, 0);
+	cpack(C_RED);
+	rectfi(10, 10, 19, 19);
+	glcompat(GLC_OLDPOLYGON, 1);
+	sprintf(what, "glcompat(GLC_OLDPOLYGON, 0): rectfi point-sampled (%06lx at 19,19)", pix(19, 19));
+	check(what, pix(18, 18) == C_RED && pix(19, 19) == C_BLACK);
+
+	cpack(C_BLACK);
+	clear();
+	concave(TRUE);
+	cpack(C_GREEN);
+	polf2(8, u);
+	p = pix(30, 40);
+	sprintf(what, "concave(TRUE): polf leaves a U's notch empty: %06lx", p);
+	check(what, p == C_BLACK && pix(15, 40) == C_GREEN && pix(30, 20) == C_GREEN);
+	cpack(C_BLACK);
+	clear();
+	cpack(C_GREEN);
+	bgnpolygon();
+	for (i = 0; i < 8; i++)
+		v2f(u[i]);
+	endpolygon();
+	concave(FALSE);
+	p = pix(30, 40);
+	sprintf(what, "... and so does bgnpolygon: %06lx", p);
+	check(what, p == C_BLACK && pix(45, 40) == C_GREEN);
+
+	/* lines are drawn closed: both ends (subpixel(3G)) */
+	cpack(C_BLACK);
+	clear();
+	cpack(C_RED);
+	{
+		static float a[2] = { 60, 10 }, b[2] = { 60, 20 };
+		bgnline();
+		v2f(a);
+		v2f(b);
+		endline();
+	}
+	sprintf(what, "a line from (60,10) to (60,20) draws (60,20): %06lx", pix(60, 20));
+	check(what, pix(60, 20) == C_RED && pix(60, 10) == C_RED);
+	winclose(gid);
+}
+
+/* stencil(3G): with the z-buffer off, pass applies when the stencil test
+ * passes (zpass is for z on). */
+static void
+t_stencil_zoff(void)
+{
+	long gid;
+
+	prefsize(W, H);
+	gid = winopen("irisgltest stencil z off");
+	RGBmode();
+	stensize(1);
+	gconfig();
+	pixel_ortho(0);
+	cpack(C_BLACK);
+	clear();
+	sclear(0);
+	zbuffer(FALSE);
+	stencil(TRUE, 1, SF_ALWAYS, 1, ST_KEEP, ST_REPLACE, ST_KEEP);
+	cpack(C_RED);
+	rectfi(10, 10, 30, 30);
+	stencil(TRUE, 1, SF_EQUAL, 1, ST_KEEP, ST_KEEP, ST_KEEP);
+	cpack(C_GREEN);
+	rectfi(0, 0, W - 1, H - 1);
+	stencil(FALSE, 0, SF_ALWAYS, 0, ST_KEEP, ST_KEEP, ST_KEEP);
+	check("stencil with z off: pass marks the rectangle", pix(20, 20) == C_GREEN && pix(45, 45) == C_BLACK);
+	winclose(gid);
+}
+
+/* depthcue: colour from z alone, max colour near, min colour far. */
+static void
+t_depthcue(void)
+{
+	long gid = rgb_window("irisgltest depthcue");
+	unsigned long n, f;
+	char what[96];
+
+	pixel_ortho(1);
+	lRGBrange(0, 0, 0, 255, 255, 255, 0, 0x7fffff);
+	depthcue(TRUE);
+	cpack(C_RED);		/* ignored while depthcue is on */
+	pmv(10, 10, 0.9f); pdr(40, 10, 0.9f); pdr(40, 40, 0.9f); pdr(10, 40, 0.9f); pclos();
+	pmv(60, 10, -0.9f); pdr(90, 10, -0.9f); pdr(90, 40, -0.9f); pdr(60, 40, -0.9f); pclos();
+	depthcue(FALSE);
+	n = pix(25, 25);
+	f = pix(75, 25);
+	sprintf(what, "depthcue: near is light grey, far dark: %06lx %06lx", n, f);
+	check(what, chan(n, 0) > 200 && chan(n, 8) > 200 && chan(f, 0) < 60 && chan(f, 8) < 60);
+	winclose(gid);
+}
+
+/* Objects: building one changes nothing now; calling it does. Pixel writes
+ * are not textured. */
+static void
+t_objects_state(void)
+{
+	static unsigned long green[4] = { 0xff00ff00UL, 0xff00ff00UL, 0xff00ff00UL, 0xff00ff00UL };
+	static unsigned long red[16 * 16];
+	static float tprops[] = { TX_MINFILTER, TX_POINT, TX_NULL };
+	static float decal[] = { TV_DECAL, TV_NULL };
+	long gid = rgb_window("irisgltest object state");
+	unsigned long p;
+	char what[96];
+	int i;
+
+	cpack(C_RED);
+	makeobj(5);
+	cpack(C_GREEN);
+	closeobj();
+	clear();
+	p = pix(5, 5);
+	sprintf(what, "makeobj ... cpack ... closeobj leaves the colour: %06lx", p);
+	check(what, p == C_RED);
+	callobj(5);
+	clear();
+	p = pix(5, 5);
+	sprintf(what, "... callobj sets it: %06lx", p);
+	check(what, p == C_GREEN);
+	delobj(5);
+
+	/* objects numbered where the font's lists would be */
+	cpack(C_BLACK);
+	clear();
+	for (i = 1; i <= 300; i++) {
+		makeobj(i);
+		cpack(C_BLUE);
+		closeobj();
+	}
+	cpack(0xffffffUL);
+	cmov2i(10, 20);
+	charstr("W");
+	{
+		unsigned long area[20 * 16];
+		int lit = 0;
+		lrectread(8, 16, 27, 31, area);
+		for (i = 0; i < 20 * 16; i++)
+			if ((area[i] & 0xffffffUL) == 0xffffffUL)
+				lit++;
+		sprintf(what, "text after makeobj(1..300) still draws: %d pixels", lit);
+		check(what, lit > 4);
+	}
+	for (i = 1; i <= 300; i++)
+		delobj(i);
+
+	/* a pixel write while a texture is bound */
+	for (i = 0; i < 16 * 16; i++)
+		red[i] = 0xff0000ffUL;
+	texdef2d(4, 4, 2, 2, green, 3, tprops);
+	tevdef(4, 2, decal);
+	texbind(TX_TEXTURE_0, 4);
+	tevbind(TV_ENV0, 4);
+	lrectwrite(40, 40, 55, 55, red);
+	tevbind(TV_ENV0, 0);
+	texbind(TX_TEXTURE_0, 0);
+	p = pix(47, 47);
+	sprintf(what, "lrectwrite under a bound texture is not textured: %06lx", p);
+	check(what, p == C_RED);
+	winclose(gid);
+}
+
 static void
 t_blend(void)
 {
@@ -1261,6 +1453,10 @@ main(void)
 	t_mmode_single();
 	t_select();
 	t_blendfactors();
+	t_oldpolygon();
+	t_stencil_zoff();
+	t_depthcue();
+	t_objects_state();
 	t_nurbs();
 	t_layers();
 	t_glx_mixed();

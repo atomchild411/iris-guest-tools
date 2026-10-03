@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <GL/glu.h>
 
 /* ---- draw modes ----
  *
@@ -233,6 +234,28 @@ hgl_enable(GLenum cap, int on)
 		glEnable(cap);
 	else
 		glDisable(cap);
+}
+
+int
+hgl_suspend(GLenum cap)
+{
+	int i;
+
+	if (target >= 0)
+		return 0;
+	for (i = 0; i < NOFF; i++)
+		if (layer_off[i] == cap && (hgl_iris.enables & 1u << i)) {
+			glDisable(cap);
+			return 1;
+		}
+	return 0;
+}
+
+void
+hgl_resume(GLenum cap, int was)
+{
+	if (was)
+		glEnable(cap);
 }
 
 /* Draw into layer l of the current window, or (l < 0) its normal planes. */
@@ -538,6 +561,7 @@ pen_line(float x, float y, float z)
 	pen[0] = x;
 	pen[1] = y;
 	pen[2] = z;
+	hgl_line_end(pen);
 }
 
 static void
@@ -548,14 +572,44 @@ pen_move(float x, float y, float z)
 	pen[2] = z;
 }
 
+/* The old-style polygon being built, pmv to pclos, and the vertices of
+ * the other old-style shapes. */
+static struct hgl_vtx *opv;
+static int opn, opcap;
+
+static void
+op_add(float x, float y, float z)
+{
+	if (opn == opcap) {
+		int cap = opcap ? opcap * 2 : 64;
+		struct hgl_vtx *p = realloc(opv, cap * sizeof *p);
+		if (p == NULL)
+			return;
+		opv = p;
+		opcap = cap;
+	}
+	memset(&opv[opn], 0, sizeof opv[opn]);
+	opv[opn].v[0] = x;
+	opv[opn].v[1] = y;
+	opv[opn].v[2] = z;
+	opn++;
+}
+
+static void
+poly_flush(void)
+{
+	if (in_poly && opn > 0)
+		hgl_old_polygon(opv, opn, 0);
+	in_poly = 0;
+	opn = 0;
+}
+
 static void
 poly_move(float x, float y, float z)
 {
 	hgl_iris_ensure();
-	if (in_poly)
-		glEnd();
-	hgl_begin(GL_POLYGON);
-	glVertex3f(x, y, z);
+	poly_flush();
+	op_add(x, y, z);
 	in_poly = 1;
 	pen_move(x, y, z);
 }
@@ -564,7 +618,7 @@ static void
 poly_draw(float x, float y, float z)
 {
 	if (in_poly)
-		glVertex3f(x, y, z);
+		op_add(x, y, z);
 	pen_move(x, y, z);
 }
 
@@ -624,9 +678,7 @@ void
 pclos(void)
 {
 	TRACE("pclos");
-	if (in_poly)
-		glEnd();
-	in_poly = 0;
+	poly_flush();
 }
 void spclos(void) { pclos(); }
 
@@ -671,12 +723,27 @@ void name(long n, const T parray[][dim]) \
 	glEnd(); \
 }
 
-POLYS(polf, Coord, 3, GL_POLYGON)
-POLYS(polfi, Icoord, 3, GL_POLYGON)
-POLYS(polfs, Scoord, 3, GL_POLYGON)
-POLYS(polf2, Coord, 2, GL_POLYGON)
-POLYS(polf2i, Icoord, 2, GL_POLYGON)
-POLYS(polf2s, Scoord, 2, GL_POLYGON)
+/* polf: old-style polygons, through hgl_old_polygon */
+#define POLFS(name, T, dim) \
+void name(long n, const T parray[][dim]) \
+{ \
+	long i; \
+	if (n <= 0 || parray == NULL) \
+		return; \
+	hgl_iris_ensure(); \
+	poly_flush(); \
+	for (i = 0; i < n; i++) \
+		op_add((float)parray[i][0], (float)parray[i][1], dim > 2 ? (float)parray[i][dim > 2 ? 2 : 0] : 0.0f); \
+	hgl_old_polygon(opv, opn, 0); \
+	opn = 0; \
+}
+
+POLFS(polf, Coord, 3)
+POLFS(polfi, Icoord, 3)
+POLFS(polfs, Scoord, 3)
+POLFS(polf2, Coord, 2)
+POLFS(polf2i, Icoord, 2)
+POLFS(polf2s, Scoord, 2)
 POLYS(poly, Coord, 3, GL_LINE_LOOP)
 POLYS(polyi, Icoord, 3, GL_LINE_LOOP)
 POLYS(polys, Scoord, 3, GL_LINE_LOOP)
@@ -692,13 +759,17 @@ void name(long n, const T parray[][dim], const Colorindex iarray[]) \
 	if (n <= 0 || parray == NULL || iarray == NULL) \
 		return; \
 	hgl_iris_ensure(); \
-	hgl_begin(GL_POLYGON); \
+	poly_flush(); \
 	for (i = 0; i < n; i++) { \
-		hgl_cmap_rgb(iarray[i], rgb); \
-		glColor3ub(rgb[0], rgb[1], rgb[2]); \
-		glVertex3f((float)parray[i][0], (float)parray[i][1], dim > 2 ? (float)parray[i][dim > 2 ? 2 : 0] : 0.0f); \
+		op_add((float)parray[i][0], (float)parray[i][1], dim > 2 ? (float)parray[i][dim > 2 ? 2 : 0] : 0.0f); \
+		if (opn == i + 1) { \
+			hgl_cmap_rgb(iarray[i], rgb); \
+			opv[i].c[0] = rgb[0] / 255.0f; opv[i].c[1] = rgb[1] / 255.0f; \
+			opv[i].c[2] = rgb[2] / 255.0f; opv[i].c[3] = 1.0f; \
+		} \
 	} \
-	glEnd(); \
+	hgl_old_polygon(opv, opn, HGL_VTX_COLOUR); \
+	opn = 0; \
 	hgl_colour_serial++; \
 }
 
@@ -709,9 +780,174 @@ SPLF(splf2, Coord, 2)
 SPLF(splf2i, Icoord, 2)
 SPLF(splf2s, Scoord, 2)
 
-/* concave(3G) promises that polygons may be concave. GL_POLYGON draws convex
- * ones only, and a concave one comes out with its notches filled. */
-void concave(Boolean b) { (void)b; }
+/* concave(3G) promises that polygons may be concave (not self-intersecting):
+ * GL_POLYGON draws convex ones only, and a concave one would come out with
+ * its notches filled, so they go through GLU's tessellator. */
+int hgl_concave;
+void concave(Boolean b) { hgl_concave = b != 0; }
+
+/*
+ * A polygon through GLU's tessellator: it hands back triangles (an edge
+ * flag callback makes them independent), with a new vertex wherever edges
+ * cross, interpolated from the four around it.
+ */
+static int tess_what;
+static struct hgl_vtx *tess_new[64];
+static int tess_nnew;
+
+static void
+tess_vertex(void *data)
+{
+	const struct hgl_vtx *p = (const struct hgl_vtx *)data;
+
+	if (tess_what & HGL_VTX_COLOUR)
+		glColor4fv(p->c);
+	if (tess_what & HGL_VTX_NT) {
+		glNormal3fv(p->n);
+		glTexCoord2fv(p->t);
+	}
+	glVertex3fv(p->v);
+}
+
+static void tess_begin(GLenum mode) { glBegin(mode); }
+static void tess_end(void) { glEnd(); }
+static void tess_edge(GLboolean flag) { (void)flag; }
+
+static void
+tess_combine(GLdouble coords[3], void *d[4], GLfloat w[4], void **out)
+{
+	struct hgl_vtx *p, *q[4];
+	int i, k;
+
+	*out = NULL;
+	if (tess_nnew == (int)(sizeof tess_new / sizeof tess_new[0]) ||
+	    (p = calloc(1, sizeof *p)) == NULL)
+		return;
+	for (i = 0; i < 4; i++)
+		q[i] = (struct hgl_vtx *)d[i];
+	for (k = 0; k < 3; k++)
+		p->v[k] = (float)coords[k];
+	for (i = 0; i < 4; i++) {
+		if (q[i] == NULL)
+			continue;
+		for (k = 0; k < 3; k++)
+			p->n[k] += w[i] * q[i]->n[k];
+		for (k = 0; k < 2; k++)
+			p->t[k] += w[i] * q[i]->t[k];
+		for (k = 0; k < 4; k++)
+			p->c[k] += w[i] * q[i]->c[k];
+	}
+	tess_new[tess_nnew++] = p;
+	*out = p;
+}
+
+void
+hgl_polygon_fill(const struct hgl_vtx *p, int n, int what, int concave)
+{
+	static GLUtesselator *tess;
+	GLdouble *xyz;
+	int i;
+
+	if (n < 3)
+		return;
+	if (!concave || n == 3 || (xyz = malloc(n * 3 * sizeof *xyz)) == NULL) {
+		glBegin(GL_POLYGON);
+		for (i = 0; i < n; i++) {
+			if (what & HGL_VTX_COLOUR)
+				glColor4fv(p[i].c);
+			if (what & HGL_VTX_NT) {
+				glNormal3fv(p[i].n);
+				glTexCoord2fv(p[i].t);
+			}
+			glVertex3fv(p[i].v);
+		}
+		glEnd();
+		return;
+	}
+	if (tess == NULL) {
+		tess = gluNewTess();
+		gluTessCallback(tess, GLU_TESS_BEGIN, (void (*)())tess_begin);
+		gluTessCallback(tess, GLU_TESS_VERTEX, (void (*)())tess_vertex);
+		gluTessCallback(tess, GLU_TESS_END, (void (*)())tess_end);
+		gluTessCallback(tess, GLU_TESS_EDGE_FLAG, (void (*)())tess_edge);
+		gluTessCallback(tess, GLU_TESS_COMBINE, (void (*)())tess_combine);
+	}
+	tess_what = what;
+	gluTessBeginPolygon(tess, NULL);
+	gluTessBeginContour(tess);
+	for (i = 0; i < n; i++) {
+		xyz[i * 3] = p[i].v[0];
+		xyz[i * 3 + 1] = p[i].v[1];
+		xyz[i * 3 + 2] = p[i].v[2];
+		gluTessVertex(tess, &xyz[i * 3], (void *)&p[i]);
+	}
+	gluTessEndContour(tess);
+	gluTessEndPolygon(tess);
+	while (tess_nnew > 0)
+		free(tess_new[--tess_nnew]);
+	free(xyz);
+}
+
+/*
+ * Old-style polygons: everything filled that is not bgnpolygon, bgntmesh
+ * or bgnqstrip -- polf, splf, rectf and sboxf, circf and arcf, pmv to
+ * pclos. While glcompat(GLC_OLDPOLYGON, 1), the default, IRIS GL draws
+ * them point-sampled *with an outline*, which fills the pixels on their
+ * top and right edges that point sampling leaves out (GLPG-I 2-20, 2-31):
+ * rectfi(10, 10, 19, 19) is 10 by 10 pixels. A line loop and a point at
+ * each vertex (a host line may leave out either end) are that outline.
+ * They are never textured or fogged (glcompat(3G)). The outline is solid,
+ * so under a pattern it is left off rather than fill the pattern's holes.
+ */
+int hgl_oldpolygon = 1;
+
+void
+hgl_old_polygon(const struct hgl_vtx *p, int n, int what)
+{
+	int tex, fog, i;
+
+	if (n < 1)
+		return;
+	hgl_iris_ensure();
+	hgl_lighting_sync();
+	tex = fog = 0;
+	if (hgl_oldpolygon) {
+		tex = hgl_suspend(GL_TEXTURE_2D);
+		fog = hgl_suspend(GL_FOG);
+	}
+	hgl_polygon_fill(p, n, what, hgl_concave);
+	if (hgl_oldpolygon && getpattern() == 0) {
+		glPushAttrib(GL_LINE_BIT | GL_POINT_BIT);
+		glLineWidth(1.0f);
+		glDisable(GL_LINE_STIPPLE);
+		glDisable(GL_LINE_SMOOTH);
+		glPointSize(1.0f);
+		glDisable(GL_POINT_SMOOTH);
+		glBegin(n > 1 ? GL_LINE_LOOP : GL_POINTS);
+		for (i = 0; i < n; i++) {
+			if (what & HGL_VTX_COLOUR)
+				glColor4fv(p[i].c);
+			glVertex3fv(p[i].v);
+		}
+		glEnd();
+		glBegin(GL_POINTS);
+		for (i = 0; i < n; i++) {
+			if (what & HGL_VTX_COLOUR)
+				glColor4fv(p[i].c);
+			glVertex3fv(p[i].v);
+		}
+		glEnd();
+		glPopAttrib();
+	}
+	if (what & HGL_VTX_COLOUR) {
+		/* what is current again what it was */
+		float c[4];
+		hgl_current_colour(c);
+		glColor4fv(c);
+	}
+	hgl_resume(GL_FOG, fog);
+	hgl_resume(GL_TEXTURE_2D, tex);
+}
 
 /* ---- vertices, normals, colours and texture coordinates ---- */
 
@@ -793,18 +1029,39 @@ arc_path(float x, float y, float r, long a0, long a1, int filled, int closed)
 	if (n < 2)
 		n = 2;
 	if (filled) {
-		hgl_begin(GL_TRIANGLE_FAN);
-		glVertex2f(x, y);
-	} else {
-		hgl_begin(closed ? GL_LINE_LOOP : GL_LINE_STRIP);
+		/* a circle is its rim; an arc's sector adds the centre, and
+		 * is concave past half a turn */
+		int was = hgl_concave;
+
+		poly_flush();
+		if (!closed)
+			op_add(x, y, 0.0f);
+		for (i = 0; i < n + (closed ? 0 : 1); i++) {
+			t = s + (e - s) * i / n;
+			op_add(x + r * (float)cos(t), y + r * (float)sin(t), 0.0f);
+		}
+		if (!closed && e - s > M_PI)
+			hgl_concave = 1;
+		hgl_old_polygon(opv, opn, 0);
+		hgl_concave = was;
+		opn = 0;
+		return;
 	}
+	hgl_begin(closed ? GL_LINE_LOOP : GL_LINE_STRIP);
 	for (i = 0; i <= n; i++) {
-		if (closed && !filled && i == n)
+		if (closed && i == n)
 			break;
 		t = s + (e - s) * i / n;
 		glVertex2f(x + r * (float)cos(t), y + r * (float)sin(t));
 	}
 	glEnd();
+	if (!closed) {
+		float end[3];
+		end[0] = x + r * (float)cos(e);
+		end[1] = y + r * (float)sin(e);
+		end[2] = 0.0f;
+		hgl_line_end(end);
+	}
 }
 
 void arc(Coord x, Coord y, Coord r, Angle a, Angle b) { arc_path(x, y, r, a, b, 0, 0); }
@@ -1002,13 +1259,21 @@ void gsync(void) { hgl_iris_ensure(); glFinish(); }
 void
 displacepolygon(float s)
 {
+	/* displacepolygon(3G) adds s * max(|dz/dx|, |dz/dy|) in window z: the
+	 * slope term, glPolygonOffset's factor (the screen z units cancel:
+	 * the slope and the offset are both in them). For polygons only, drawn
+	 * as lines and points by polymode too. */
 	hgl_iris_ensure();
 	if (s == 0.0f) {
 		glDisable(GL_POLYGON_OFFSET_FILL);
+		glDisable(GL_POLYGON_OFFSET_LINE);
+		glDisable(GL_POLYGON_OFFSET_POINT);
 		return;
 	}
-	glPolygonOffset(0.0f, s);
+	glPolygonOffset(s, 0.0f);
 	glEnable(GL_POLYGON_OFFSET_FILL);
+	glEnable(GL_POLYGON_OFFSET_LINE);
+	glEnable(GL_POLYGON_OFFSET_POINT);
 }
 
 void
@@ -1044,6 +1309,21 @@ st_op(long op)
 	return op >= 0 && op < 6 ? ops[op] : GL_KEEP;
 }
 
+/*
+ * stencil(3G)'s pass is "the stencil test passes and the z test fails", and
+ * zpass "both pass" -- but with the z-buffer off, pass applies whenever the
+ * stencil test passes. OpenGL takes its last op then, so the ops are sent
+ * again whenever zbuffer changes.
+ */
+static long st_fail, st_pass, st_zpass;
+
+void
+hgl_stencil_ops(void)
+{
+	glStencilOp(st_op(st_fail), st_op(st_pass),
+	    st_op(hgl_iris.enables & 1u ? st_zpass : st_pass));
+}
+
 void
 stencil(long enable, unsigned long ref, long func, unsigned long mask, long fail, long pass, long zpass)
 {
@@ -1054,7 +1334,10 @@ stencil(long enable, unsigned long ref, long func, unsigned long mask, long fail
 		return;
 	}
 	glStencilFunc(GL_NEVER + (GLenum)(func & 7), (GLint)ref, (GLuint)mask);
-	glStencilOp(st_op(fail), st_op(pass), st_op(zpass));
+	st_fail = fail;
+	st_pass = pass;
+	st_zpass = zpass;
+	hgl_stencil_ops();
 	glEnable(GL_STENCIL_TEST);
 }
 
@@ -1223,7 +1506,6 @@ long getothermonitor(void) { return HZ60; }
 Boolean getmultisample(void) { return FALSE; }
 Boolean getresetls(void) { return TRUE; }
 Boolean getlsbackup(void) { return FALSE; }
-Boolean getdcm(void) { return FALSE; }
 void mswapbuffers(long fbuf) { (void)fbuf; swapbuffers(); }
 
 /*
@@ -1253,7 +1535,6 @@ void attachcursor(Device a, Device b) { (void)a; (void)b; }
 void RGBcursor(short a, short b, short c, short d, short e, short f, short g) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)g; }
 void blink(short a, Colorindex b, short c, short d, short e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
 void cyclemap(short a, short b, short c) { (void)a; (void)b; (void)c; }
-void depthcue(Boolean b) { (void)b; }
 void multisample(Boolean b) { (void)b; }
 void msalpha(long m) { (void)m; }
 void msmask(float v, Boolean b) { (void)v; (void)b; }

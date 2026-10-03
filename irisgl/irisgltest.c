@@ -1038,6 +1038,171 @@ t_objects_state(void)
 	winclose(gid);
 }
 
+/* gconfig's resets, getbuffer, lmbind of an undefined name, a patterned
+ * clear, per-window lighting. */
+static void
+t_config_state(void)
+{
+	static float mat[] = { DIFFUSE, 0.0f, 0.0f, 1.0f, LMNULL };
+	static float light[] = { LCOLOR, 1.0f, 1.0f, 1.0f, POSITION, 0.0f, 0.0f, 1.0f, 0.0f, LMNULL };
+	static float model[] = { LMNULL };
+	static float n[3] = { 0, 0, 1 };
+	static float v[4][3] = { { 10, 10, 0 }, { 50, 10, 0 }, { 50, 50, 0 }, { 10, 50, 0 } };
+	static unsigned short half[16];
+	long gid, gid2;
+	short r = 1, g = 1, b = 1;
+	unsigned long p;
+	char what[96];
+	int i, lit;
+
+	prefsize(W, H);
+	gid = winopen("irisgltest config");
+	RGBmode();
+	cpack(C_RED);
+	gconfig();
+	gRGBcolor(&r, &g, &b);
+	sprintf(what, "gconfig sets the colour to 0: %d %d %d", r, g, b);
+	check(what, r == 0 && g == 0 && b == 0);
+	check("getbuffer is 0 when single-buffered", getbuffer() == 0);
+	pixel_ortho(0);
+
+	/* lmbind of a name never defined binds 0: lighting goes off */
+	mmode(MVIEWING);
+	pixel_ortho(1);
+	loadmatrix(identity);
+	lmdef(DEFMATERIAL, 6, 5, mat);
+	lmdef(DEFLIGHT, 6, 10, light);
+	lmdef(DEFLMODEL, 6, 1, model);
+	lmbind(MATERIAL, 6);
+	lmbind(LIGHT0, 6);
+	lmbind(LMODEL, 6);
+	lmbind(MATERIAL, 999);
+	cpack(C_BLACK);
+	clear();
+	cpack(C_RED);
+	bgnpolygon();
+	for (i = 0; i < 4; i++) {
+		n3f(n);
+		v3f(v[i]);
+	}
+	endpolygon();
+	p = pix(30, 30);
+	sprintf(what, "lmbind(MATERIAL, undefined) turns lighting off: %06lx", p);
+	check(what, p == C_RED);
+
+	/* lighting bound in one window is not bound in the next */
+	lmbind(MATERIAL, 6);
+	prefsize(W, H);
+	gid2 = winopen("irisgltest config 2");
+	RGBmode();
+	gconfig();
+	mmode(MVIEWING);
+	pixel_ortho(1);
+	cpack(C_BLACK);
+	clear();
+	cpack(C_RED);
+	bgnpolygon();
+	for (i = 0; i < 4; i++) {
+		n3f(n);
+		v3f(v[i]);
+	}
+	endpolygon();
+	p = pix(30, 30);
+	sprintf(what, "a new window has no lighting bound: %06lx", p);
+	check(what, p == C_RED);
+	winclose(gid2);
+	winset(gid);
+	lmbind(MATERIAL, 0);
+	mmode(MSINGLE);
+	pixel_ortho(0);
+
+	/* a patterned clear: every other column */
+	for (i = 0; i < 16; i++)
+		half[i] = 0xaaaa;
+	defpattern(3, 16, half);
+	cpack(C_BLACK);
+	clear();
+	setpattern(3);
+	cpack(C_GREEN);
+	clear();
+	setpattern(0);
+	lit = 0;
+	for (i = 0; i < 16; i++)
+		if (pix(20 + i, 20) == C_GREEN)
+			lit++;
+	sprintf(what, "clear under a pattern fills half the pixels: %d of 16", lit);
+	check(what, lit == 8);
+	winclose(gid);
+}
+
+/* pixmode(PM_ZDATA): lrectwrite writes z, not colour. */
+static void
+t_zdata(void)
+{
+	static unsigned long z[16 * 16];
+	long gid;
+	unsigned long a, b;
+	char what[96];
+	int i;
+
+	prefsize(W, H);
+	gid = winopen("irisgltest zdata");
+	RGBmode();
+	gconfig();
+	pixel_ortho(1);
+	zbuffer(TRUE);
+	czclear(C_BLACK, getgdesc(GD_ZMAX));
+	for (i = 0; i < 16 * 16; i++)
+		z[i] = 0;		/* nearest */
+	pixmode(PM_ZDATA, 1);
+	lrectwrite(20, 20, 35, 35, z);
+	pixmode(PM_ZDATA, 0);
+	cpack(C_RED);
+	pmv(10, 10, 0.0f); pdr(50, 10, 0.0f); pdr(50, 50, 0.0f); pdr(10, 50, 0.0f); pclos();
+	a = pix(27, 27);
+	b = pix(15, 15);
+	sprintf(what, "z written with PM_ZDATA hides what is behind: %06lx, %06lx beside", a, b);
+	check(what, a == C_BLACK && b == C_RED);
+	zbuffer(FALSE);
+	winclose(gid);
+}
+
+/* mapw2 through a viewing object; a texture with the default (mipmap)
+ * filter. */
+static void
+t_mapw_mipmap(void)
+{
+	static unsigned long green[4] = { 0xff00ff00UL, 0xff00ff00UL, 0xff00ff00UL, 0xff00ff00UL };
+	static float decal[] = { TV_DECAL, TV_NULL };
+	long gid = rgb_window("irisgltest mapw");
+	long w = W, h = H;
+	Coord wx = -1, wy = -1;
+	unsigned long p;
+	char what[96];
+
+	getsize(&w, &h);
+	makeobj(40);
+	ortho2(0.0f, 10.0f, 0.0f, 10.0f);
+	closeobj();
+	mapw2(40, (Screencoord)(w / 2), (Screencoord)(h / 2), &wx, &wy);
+	sprintf(what, "mapw2 of the window centre under ortho2(0,10,0,10): %g %g", wx, wy);
+	check(what, wx > 4.8f && wx < 5.2f && wy > 4.8f && wy < 5.2f);
+	delobj(40);
+
+	pixel_ortho(0);
+	texdef2d(6, 4, 2, 2, green, 0, NULL);
+	tevdef(6, 2, decal);
+	texbind(TX_TEXTURE_0, 6);
+	tevbind(TV_ENV0, 6);
+	textured_quad();
+	tevbind(TV_ENV0, 0);
+	texbind(TX_TEXTURE_0, 0);
+	p = pix(30, 30);
+	sprintf(what, "a texture with the default (mipmapped) filter draws: %06lx", p);
+	check(what, p == C_GREEN);
+	winclose(gid);
+}
+
 static void
 t_blend(void)
 {
@@ -1457,6 +1622,9 @@ main(void)
 	t_stencil_zoff();
 	t_depthcue();
 	t_objects_state();
+	t_config_state();
+	t_zdata();
+	t_mapw_mipmap();
 	t_nurbs();
 	t_layers();
 	t_glx_mixed();

@@ -1,6 +1,7 @@
 /* IRIS GL's drawing and state, as OpenGL. See irisgl_shim.h. */
 #include "irisgl_shim.h"
 #include <gl/get.h>
+#include <GL/glu.h>
 
 #include <math.h>
 #include <stdio.h>
@@ -14,7 +15,10 @@
  * a clear colour of its own that nothing here was setting. So every frame was
  * cleared to the default black no matter what the program asked for.
  */
-static float cur_r = 0.0f, cur_g = 0.0f, cur_b = 0.0f, cur_a = 1.0f;
+static float cur_r = 0.0f, cur_g = 0.0f, cur_b = 0.0f, cur_a = 0.0f;
+/* The depth range lsetdepth set, as OpenGL's 0 .. 1 (depthcue and the
+ * raster position's re-latch use it). */
+static double depth_n = 0.0, depth_f = 1.0;
 unsigned long hgl_colour_serial, hgl_raster_serial;
 
 /*
@@ -87,7 +91,8 @@ hgl_latch_raster_colour(void)
 		return;
 	glGetFloatv(GL_CURRENT_RASTER_POSITION, p);
 	/* The same window position (and depth) through a pixel-exact
-	 * projection: window z = (1 - z) / 2 for glOrtho(..., -1, 1). */
+	 * projection: under glOrtho(..., -1, 1) and the depth range n..f,
+	 * window z = n + (f - n) (1 - z) / 2. */
 	glPushAttrib(GL_TRANSFORM_BIT | GL_VIEWPORT_BIT);
 	glViewport(0, 0, w, h);
 	glMatrixMode(GL_PROJECTION);
@@ -97,8 +102,44 @@ hgl_latch_raster_colour(void)
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
 	glLoadIdentity();
-	hgl_rasterpos(p[0], p[1], 1.0f - 2.0f * p[2]);
+	hgl_rasterpos(p[0], p[1], depth_f != depth_n ?
+	    (float)(1.0 - 2.0 * (p[2] - depth_n) / (depth_f - depth_n)) : 0.0f);
 	glMatrixMode(GL_MODELVIEW);
+	glPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glPopAttrib();
+}
+
+/*
+ * clear(3G) honours the writemask and the pattern, and nothing else that
+ * applies to drawing (afunction, blend, logicop, stencil, texture, z, ...).
+ * glClear ignores the polygon stipple, so a patterned clear is a stippled
+ * rectangle over the viewport with those off.
+ */
+static void
+pattern_clear(void)
+{
+	static const GLenum off[] = {
+		GL_DEPTH_TEST, GL_BLEND, GL_COLOR_LOGIC_OP, GL_ALPHA_TEST, GL_STENCIL_TEST,
+		GL_TEXTURE_1D, GL_TEXTURE_2D, GL_FOG, GL_LIGHTING, GL_CULL_FACE,
+		GL_CLIP_PLANE0, GL_CLIP_PLANE1, GL_CLIP_PLANE2, GL_CLIP_PLANE3,
+		GL_CLIP_PLANE4, GL_CLIP_PLANE5, GL_POLYGON_OFFSET_FILL
+	};
+	int i;
+
+	glPushAttrib(GL_ENABLE_BIT | GL_TRANSFORM_BIT | GL_CURRENT_BIT | GL_POLYGON_BIT);
+	for (i = 0; i < (int)(sizeof off / sizeof off[0]); i++)
+		glDisable(off[i]);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	glColor4f(cur_r, cur_g, cur_b, cur_a);
+	glRectf(-1.0f, -1.0f, 1.0f, 1.0f);
 	glPopMatrix();
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();
@@ -112,6 +153,10 @@ clear(void)
 	hgl_iris_ensure();
 	if (hgl_selecting)
 		return;
+	if (getpattern() != 0) {
+		pattern_clear();
+		return;
+	}
 	glClearColor(cur_r, cur_g, cur_b, cur_a);
 	glClear(GL_COLOR_BUFFER_BIT);
 }
@@ -147,9 +192,6 @@ zbuffer(Boolean on)
  * of the depth test. OpenGL's is 0 .. 1, so both ends are scaled by the range
  * getgdesc(GD_ZMAX) reports, which is the same number the program read.
  */
-/* The depth range lsetdepth set, as OpenGL's 0 .. 1 (for depthcue). */
-static double depth_n = 0.0, depth_f = 1.0;
-
 void
 lsetdepth(long near, long far)
 {
@@ -518,6 +560,7 @@ update_lighting_enable(void)
 }
 
 void hgl_lighting_sync(void) { update_lighting_enable(); }
+void hgl_lighting_normal_last(void) { colour_last = 0; update_lighting_enable(); }
 
 /*
  * Every primitive starts here. OpenGL lights a primitive whole or not at
@@ -735,10 +778,11 @@ lmbind(short target, short index)
 	if (index < 0)
 		return;
 	if (target == MATERIAL || target == BACKMATERIAL) {
-		if (id && (index = def_slot(material_ids, id, 0)) == 0)
-			return;
+		/* an undefined name binds 0: the resource is off (lmbind(3G)) */
+		if (id)
+			index = def_slot(material_ids, id, 0);
 		if (index && !materials[index].used)
-			return;
+			index = 0;
 		if (target == MATERIAL)
 			bound_material = index;
 		else
@@ -752,20 +796,20 @@ lmbind(short target, short index)
 		update_lighting_enable();
 	} else if (target >= LIGHT0 && target <= LIGHT7) {
 		int n = target - LIGHT0;
-		if (id && (index = def_slot(light_ids, id, 0)) == 0)
-			return;
+		if (id)
+			index = def_slot(light_ids, id, 0);
 		if (index && !lights[index].used)
-			return;
+			index = 0;
 		bound_light[n] = index;
 		if (index)
 			apply_light(n, index);
 		else
 			glDisable(GL_LIGHT0 + n);
 	} else if (target == LMODEL) {
-		if (id && (index = def_slot(lmodel_ids, id, 0)) == 0)
-			return;
+		if (id)
+			index = def_slot(lmodel_ids, id, 0);
 		if (index && !lmodels[index].used)
-			return;
+			index = 0;
 		bound_lmodel = index;
 		if (index)
 			apply_lmodel(index);
@@ -810,7 +854,10 @@ tex_props(long np, const float props[], struct texprops *tp)
 	long i = 0;
 
 	tp->wrap_s = tp->wrap_t = GL_REPEAT;
-	tp->minf = tp->magf = GL_LINEAR;
+	/* "TX_MIPMAP_LINEAR or a filter of equal performance, but better
+	 * quality" (texdef(3G)): trilinear, mipmaps built here */
+	tp->minf = GL_LINEAR_MIPMAP_LINEAR;
+	tp->magf = GL_LINEAR;
 	tp->pack16 = 0;
 	if (props == NULL)
 		return;
@@ -819,7 +866,16 @@ tex_props(long np, const float props[], struct texprops *tp)
 		float v = props[i];
 		switch (sym) {
 		case TX_MINFILTER:
-			tp->minf = (long)v == TX_POINT ? GL_NEAREST : GL_LINEAR;
+			switch ((long)v) {
+			case TX_POINT: tp->minf = GL_NEAREST; break;
+			case TX_MIPMAP_POINT: tp->minf = GL_NEAREST_MIPMAP_NEAREST; break;
+			case TX_MIPMAP_LINEAR: tp->minf = GL_NEAREST_MIPMAP_LINEAR; break;
+			case TX_MIPMAP_BILINEAR: tp->minf = GL_LINEAR_MIPMAP_NEAREST; break;
+			case TX_MIPMAP: case TX_MIPMAP_TRILINEAR: case TX_MIPMAP_QUADLINEAR:
+				tp->minf = GL_LINEAR_MIPMAP_LINEAR;
+				break;
+			default: tp->minf = GL_LINEAR; break;
+			}
 			i++;
 			break;
 		case TX_MAGFILTER:
@@ -924,8 +980,12 @@ texdef2d(long index, long nc, long width, long height,
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, tp.magf);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, tp.wrap_s);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, tp.wrap_t);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)width, (GLsizei)height, 0,
-	    GL_RGBA, GL_UNSIGNED_BYTE, buf);
+	if (tp.minf == GL_NEAREST || tp.minf == GL_LINEAR)
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)width, (GLsizei)height, 0,
+		    GL_RGBA, GL_UNSIGNED_BYTE, buf);
+	else
+		gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA, (GLint)width, (GLint)height,
+		    GL_RGBA, GL_UNSIGNED_BYTE, buf);
 	free(buf);
 	/* defining a texture does not bind it */
 	glBindTexture(GL_TEXTURE_2D, tex_bound ? texnames[tex_bound] : 0);
@@ -1219,7 +1279,32 @@ v3f(const float v[3])
 void v2f(const float v[2]) { float f[3]; f[0] = v[0]; f[1] = v[1]; f[2] = 0.0f; v3f(f); }
 void v2i(const long v[2]) { float f[3]; f[0] = (float)v[0]; f[1] = (float)v[1]; f[2] = 0.0f; v3f(f); }
 void v2s(const short v[2]) { float f[3]; f[0] = v[0]; f[1] = v[1]; f[2] = 0.0f; v3f(f); }
-void v4f(const float v[4]) { glVertex4fv(v); }
+void v4f(const float v[4]) { hgl_v4(v[0], v[1], v[2], v[3]); }
+
+/* A homogeneous vertex through v3f (mesh bookkeeping, lighting), divided
+ * out; a point at infinity can only go straight to OpenGL. */
+void
+hgl_v4(float x, float y, float z, float w)
+{
+	float f[3];
+
+	if (w == 0.0f) {
+		glVertex4f(x, y, z, w);
+		return;
+	}
+	f[0] = x / w;
+	f[1] = y / w;
+	f[2] = z / w;
+	v3f(f);
+}
+
+void
+hgl_texcoord(float s, float t, float r, float q)
+{
+	cur_t[0] = s;
+	cur_t[1] = t;
+	glTexCoord4f(s, t, r, q);
+}
 void c3f(const float v[3]) { hgl_irisgl_tracef("c3f %g %g %g", v[0], v[1], v[2]); hgl_set_colour(v[0], v[1], v[2], 1.0f); }
 void c4f(const float v[4]) { hgl_set_colour(v[0], v[1], v[2], v[3]); }
 void t2f(const float v[2]) { cur_t[0] = v[0]; cur_t[1] = v[1]; glTexCoord2fv(v); }
@@ -1411,9 +1496,14 @@ color(Colorindex i)
 	if (!cmap_ready)
 		cmap_init();
 	hgl_iris_ensure();
-	i &= HGL_CMAP_SIZE - 1;
+	/* indices past the map are clamped, not masked (color(3G)) */
+	if (i >= HGL_CMAP_SIZE)
+		i = HGL_CMAP_SIZE - 1;
 	hgl_set_colour(cmap[i][0], cmap[i][1], cmap[i][2], 1.0f);
 }
+
+/* colorf(3G): a colour index as a float, rounded. */
+void colorf(float f) { color((Colorindex)(f < 0.0f ? 0 : f + 0.5f)); }
 
 void
 czclear(unsigned long c, long z)
@@ -1750,6 +1840,49 @@ cstate_diff(const struct cstate *a, const struct cstate *b)
 	return d;
 }
 
+/*
+ * The same state per window: lighting and texture bindings, the colour and
+ * the rest belong to the window current when they were set (GLPG-I 9-21),
+ * as GL's own state belongs to the window's context. save: 1 keeps the
+ * current window's, 0 makes gid's current (IRIS GL's defaults for a window
+ * never saved), -1 forgets gid's. The enables and blend flag are kept with
+ * the window already (irisgl_rt.c).
+ */
+#define WINSTATES 64
+static struct cstate win_state[WINSTATES];
+static char win_state_kept[WINSTATES];
+
+void
+hgl_window_state(long gid, int save)
+{
+	struct cstate d;
+	unsigned what = ~0u & ~(unsigned)(CS_BLEND | CS_ENABLES | CS_POLY);
+
+	if (gid <= 0 || gid >= WINSTATES)
+		return;
+	if (save < 0) {
+		win_state_kept[gid] = 0;
+	} else if (save) {
+		cstate_get(&win_state[gid]);
+		win_state_kept[gid] = 1;
+	} else if (win_state_kept[gid]) {
+		cstate_put(&win_state[gid], what);
+	} else {
+		cstate_get(&d);
+		memset(d.colour, 0, sizeof d.colour);
+		d.index = 0;
+		d.colour_last = 0;
+		d.lmcolor_mode = LMC_COLOR;
+		d.material = d.backmaterial = d.lmodel = 0;
+		memset(d.light, 0, sizeof d.light);
+		d.tex = d.tev = 0;
+		d.line_width = 1.0f;
+		d.shade = GOURAUD;
+		d.depthcue = 0;
+		cstate_put(&d, what);
+	}
+}
+
 struct object {
 	long id;		/* 0: free */
 	GLuint list;
@@ -1882,6 +2015,66 @@ delobj(Object id)
 
 long isobj(Object id) { return obj_find((long)id) != NULL; }
 
+/*
+ * mapw(3G), mapw2(3G): a window point back into world space, through the
+ * transformations a viewing object holds. The object is called with both
+ * matrices the identity, what it leaves in them read back, and the point
+ * unprojected at the near and far planes.
+ */
+static int
+map_back(Object vobj, Screencoord sx, Screencoord sy, GLdouble near[3], GLdouble far[3])
+{
+	struct object *o;
+	GLdouble mv[16], pr[16];
+	GLint vp[4];
+
+	hgl_iris_ensure();
+	if ((o = obj_find((long)vobj)) == NULL)
+		return 0;
+	glPushAttrib(GL_VIEWPORT_BIT | GL_TRANSFORM_BIT);
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	glCallList(o->list);
+	glGetDoublev(GL_MODELVIEW_MATRIX, mv);
+	glGetDoublev(GL_PROJECTION_MATRIX, pr);
+	glGetIntegerv(GL_VIEWPORT, vp);
+	glMatrixMode(GL_MODELVIEW);
+	glPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glPopAttrib();
+	if (!gluUnProject(sx, sy, 0.0, mv, pr, vp, &near[0], &near[1], &near[2]) ||
+	    !gluUnProject(sx, sy, 1.0, mv, pr, vp, &far[0], &far[1], &far[2]))
+		return 0;
+	return 1;
+}
+
+void
+mapw(Object vobj, Screencoord sx, Screencoord sy, Coord *wx1, Coord *wy1, Coord *wz1,
+    Coord *wx2, Coord *wy2, Coord *wz2)
+{
+	GLdouble a[3] = { 0, 0, 0 }, b[3] = { 0, 0, 0 };
+
+	map_back(vobj, sx, sy, a, b);
+	*wx1 = (Coord)a[0]; *wy1 = (Coord)a[1]; *wz1 = (Coord)a[2];
+	*wx2 = (Coord)b[0]; *wy2 = (Coord)b[1]; *wz2 = (Coord)b[2];
+}
+
+/* mapw2: the same in 2-D, where the line is a point. */
+void
+mapw2(Object vobj, Screencoord sx, Screencoord sy, Coord *wx, Coord *wy)
+{
+	GLdouble a[3] = { 0, 0, 0 }, b[3];
+
+	map_back(vobj, sx, sy, a, b);
+	*wx = (Coord)a[0];
+	*wy = (Coord)a[1];
+}
+
 /* getopenobj(3G): the object being made, or -1. */
 Object getopenobj(void) { return hgl_compiling && open_obj != NULL ? (Object)open_obj->id : (Object)-1; }
 
@@ -1973,7 +2166,7 @@ defpattern(short n, short size, const unsigned short *mask)
 {
 	int row, col;
 
-	if (n <= 0 || n >= MAXSTYLE || mask == NULL || (size != 16 && size != 32))
+	if (n <= 0 || n >= MAXSTYLE || mask == NULL || (size != 16 && size != 32 && size != 64))
 		return;
 	memset(patterns[n], 0, sizeof patterns[n]);
 	for (row = 0; row < 32; row++) {
@@ -1981,8 +2174,10 @@ defpattern(short n, short size, const unsigned short *mask)
 			int on;
 			if (size == 16)
 				on = mask[row % 16] >> (15 - col % 16) & 1;
-			else
+			else if (size == 32)
 				on = mask[row * 2 + col / 16] >> (15 - col % 16) & 1;
+			else	/* OpenGL's stipple is 32 square: the 64's lower left */
+				on = mask[row * 4 + col / 16] >> (15 - col % 16) & 1;
 			if (on)
 				patterns[n][row * 4 + col / 8] |= 0x80 >> (col % 8);
 		}

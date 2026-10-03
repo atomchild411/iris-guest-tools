@@ -151,6 +151,11 @@ void hgl_old_polygon(const struct hgl_vtx *p, int n, int what);
 extern int hgl_concave;
 /* Set lighting for drawing that does not go through hgl_begin. */
 void hgl_lighting_sync(void);
+/* ... as for a primitive whose last input was a normal (NURBS surfaces). */
+void hgl_lighting_normal_last(void);
+/* This library's per-window state (irisgl_draw.c): 1 save the current
+ * window's, 0 load gid's, -1 forget gid's. */
+void hgl_window_state(long gid, int save);
 /* depthcue (irisgl_draw.c) and the stencil ops that follow zbuffer. */
 extern int hgl_depthcue;
 void hgl_depthcue_update(void);
@@ -161,6 +166,9 @@ extern int hgl_compiling;
 void hgl_fonts_prepare(void);
 /* The last pixel of an open line (subpixel FALSE draws lines closed). */
 void hgl_line_end(const float v[3]);
+/* v4* and t2d/t3* /t4* through the bookkeeping v3f and t2f keep. */
+void hgl_v4(float x, float y, float z, float w);
+void hgl_texcoord(float s, float t, float r, float q);
 /* The X server's overlay visual (GLX_LEVEL 1) on the library's own
  * connection, or NULL: then the layers are drawn into the normal planes. */
 XVisualInfo *hgl_overlay_visual(void);

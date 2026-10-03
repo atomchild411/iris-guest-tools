@@ -511,6 +511,7 @@ RGBwritemask(short r, short g, short b)
 	wm[0] = r != 0;
 	wm[1] = g != 0;
 	wm[2] = b != 0;
+	wm[3] = 1;	/* RGBwritemask(3G): alpha is all enabled */
 	hgl_apply_colormask();
 }
 
@@ -954,21 +955,22 @@ hgl_old_polygon(const struct hgl_vtx *p, int n, int what)
 /* Through v3f, which a triangle mesh's swaptmesh needs to see every vertex. */
 void v2d(const double v[2]) { float f[3]; f[0] = (float)v[0]; f[1] = (float)v[1]; f[2] = 0.0f; v3f(f); }
 void v3d(const double v[3]) { float f[3]; f[0] = (float)v[0]; f[1] = (float)v[1]; f[2] = (float)v[2]; v3f(f); }
-void v4d(const double v[4]) { glVertex4d(v[0], v[1], v[2], v[3]); }
+void v4d(const double v[4]) { hgl_v4((float)v[0], (float)v[1], (float)v[2], (float)v[3]); }
 void v3i(const long v[3]) { float f[3]; f[0] = (float)v[0]; f[1] = (float)v[1]; f[2] = (float)v[2]; v3f(f); }
-void v4i(const long v[4]) { glVertex4i((GLint)v[0], (GLint)v[1], (GLint)v[2], (GLint)v[3]); }
+void v4i(const long v[4]) { hgl_v4((float)v[0], (float)v[1], (float)v[2], (float)v[3]); }
 void v3s(const short v[3]) { float f[3]; f[0] = v[0]; f[1] = v[1]; f[2] = v[2]; v3f(f); }
-void v4s(const short v[4]) { glVertex4s(v[0], v[1], v[2], v[3]); }
+void v4s(const short v[4]) { hgl_v4(v[0], v[1], v[2], v[3]); }
 void normal(const Coord v[3]) { n3f(v); }
-void t2d(const double v[2]) { glTexCoord2d(v[0], v[1]); }
-void t3d(const double v[3]) { glTexCoord3d(v[0], v[1], v[2]); }
-void t3f(const float v[3]) { glTexCoord3fv(v); }
-void t3i(const long v[3]) { glTexCoord3f((float)v[0], (float)v[1], (float)v[2]); }
-void t3s(const short v[3]) { glTexCoord3s(v[0], v[1], v[2]); }
-void t4d(const double v[4]) { glTexCoord4d(v[0], v[1], v[2], v[3]); }
-void t4f(const float v[4]) { glTexCoord4fv(v); }
-void t4i(const long v[4]) { glTexCoord4f((float)v[0], (float)v[1], (float)v[2], (float)v[3]); }
-void t4s(const short v[4]) { glTexCoord4s(v[0], v[1], v[2], v[3]); }
+/* Through hgl_texcoord, which a triangle mesh's repeated vertices read. */
+void t2d(const double v[2]) { hgl_texcoord((float)v[0], (float)v[1], 0.0f, 1.0f); }
+void t3d(const double v[3]) { hgl_texcoord((float)v[0], (float)v[1], (float)v[2], 1.0f); }
+void t3f(const float v[3]) { hgl_texcoord(v[0], v[1], v[2], 1.0f); }
+void t3i(const long v[3]) { hgl_texcoord((float)v[0], (float)v[1], (float)v[2], 1.0f); }
+void t3s(const short v[3]) { hgl_texcoord(v[0], v[1], v[2], 1.0f); }
+void t4d(const double v[4]) { hgl_texcoord((float)v[0], (float)v[1], (float)v[2], (float)v[3]); }
+void t4f(const float v[4]) { hgl_texcoord(v[0], v[1], v[2], v[3]); }
+void t4i(const long v[4]) { hgl_texcoord((float)v[0], (float)v[1], (float)v[2], (float)v[3]); }
+void t4s(const short v[4]) { hgl_texcoord(v[0], v[1], v[2], v[3]); }
 
 /* Integer colour components run 0..255, and values above are clamped. */
 static float
@@ -1218,9 +1220,12 @@ getbuffer(void)
 {
 	long b = 0;
 
-	if (hgl_iris.want_double && !hgl_iris.front)
+	/* getbuffer(3G): 0 when not double-buffered */
+	if (!hgl_iris.want_double)
+		return 0;
+	if (!hgl_iris.front)
 		b |= BCKBUFFER;
-	if (!hgl_iris.want_double || hgl_iris.front)
+	else
 		b |= FRNTBUFFER;
 	return b;
 }
@@ -1470,11 +1475,23 @@ Boolean ismex(void) { return FALSE; }
 long dglopen(String name, long type) { (void)name; (void)type; return -1; }
 void dglclose(long id) { (void)id; }
 
+static Screencoord setdepth_n = 0, setdepth_f = 0x7fff;
+
 void
 getdepth(Screencoord *n, Screencoord *f)
 {
-	*n = 0;
-	*f = 0x7fff;
+	/* what the obsolete setdepth set, as getdepth(3G) promises */
+	*n = setdepth_n;
+	*f = setdepth_f;
+}
+
+/* setdepth(3G): lsetdepth's obsolete form. */
+void
+setdepth(Screencoord n, Screencoord f)
+{
+	setdepth_n = n;
+	setdepth_f = f;
+	lsetdepth(n, f);
 }
 
 /* A device's value, whichever kind of device it is. */

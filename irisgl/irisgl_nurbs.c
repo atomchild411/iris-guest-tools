@@ -64,6 +64,15 @@ defaults(void)
 	props_set = 1;
 }
 
+/* N_ISOLINE_S (lines of constant s) has no GLU mode: the patch outlines
+ * are the nearest. */
+static GLfloat
+display_mode(float value)
+{
+	return value == N_OUTLINE_POLY ? GLU_OUTLINE_POLYGON :
+	    value == N_OUTLINE_PATCH || value == N_ISOLINE_S ? GLU_OUTLINE_PATCH : GLU_FILL;
+}
+
 static GLUnurbsObj *
 renderer(void)
 {
@@ -77,6 +86,7 @@ renderer(void)
 		gluNurbsCallback(nurbs, GLU_ERROR, (void (*)())nurbs_error);
 		gluNurbsProperty(nurbs, GLU_SAMPLING_TOLERANCE, props[N_PIXEL_TOLERANCE]);
 		gluNurbsProperty(nurbs, GLU_CULLING, props[N_CULLING] != 0.0f ? GL_TRUE : GL_FALSE);
+		gluNurbsProperty(nurbs, GLU_DISPLAY_MODE, display_mode(props[N_DISPLAY]));
 	}
 	return nurbs;
 }
@@ -188,6 +198,10 @@ endsurface(void)
 	TRACE("endsurface");
 	if (!in_surface || nurbs == NULL)
 		return;
+	/* A surface is lit by the bound material (GLPG-II 14-14): its
+	 * normals come from the evaluators, so it is normal-last, and it
+	 * never passes through hgl_begin, which sets lighting. */
+	hgl_lighting_normal_last();
 	gluEndSurface(nurbs);
 	glPopAttrib();
 	in_surface = 0;
@@ -324,7 +338,9 @@ setnurbsproperty(long property, float value)
 	if (property < 1 || property > N_TMP6)
 		return;
 	props[property] = value;
-	if ((n = renderer()) == NULL)
+	/* Before the renderer exists (before winopen, perhaps) the value is
+	 * only kept: renderer() applies it when it makes one. */
+	if (nurbs == NULL || (n = renderer()) == NULL)
 		return;
 	switch (property) {
 	case N_PIXEL_TOLERANCE:
@@ -334,11 +350,7 @@ setnurbsproperty(long property, float value)
 		gluNurbsProperty(n, GLU_CULLING, value != 0.0f ? GL_TRUE : GL_FALSE);
 		break;
 	case N_DISPLAY:
-		/* N_ISOLINE_S (lines of constant s) has no GLU mode: the patch
-		 * outlines are the nearest. */
-		gluNurbsProperty(n, GLU_DISPLAY_MODE,
-		    value == N_OUTLINE_POLY ? GLU_OUTLINE_POLYGON :
-		    value == N_OUTLINE_PATCH || value == N_ISOLINE_S ? GLU_OUTLINE_PATCH : GLU_FILL);
+		gluNurbsProperty(n, GLU_DISPLAY_MODE, display_mode(value));
 		break;
 	default:
 		/* N_ERRORCHECKING, N_SUBDIVISIONS, N_S_STEPS, N_T_STEPS, N_TILES

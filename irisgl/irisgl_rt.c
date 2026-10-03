@@ -173,6 +173,7 @@ save_current(void)
 	s->mask_b = g->mask_b;
 	s->mask_t = g->mask_t;
 	memcpy(s->title, g->title, sizeof s->title);
+	hgl_window_state(g->gid, 1);
 }
 
 static void
@@ -206,6 +207,7 @@ load_current(long gid)
 	g->mask_b = s->mask_b;
 	g->mask_t = s->mask_t;
 	memcpy(g->title, s->title, sizeof g->title);
+	hgl_window_state(gid, 0);
 }
 
 static long
@@ -1006,6 +1008,10 @@ winopen(String name)
 	hgl_iris.enables = 0;
 	hgl_iris.index_win = 0;
 	hgl_iris.gid = gid;
+	/* a new window starts from IRIS GL's defaults: no lighting or
+	 * texture bound, colour 0 */
+	hgl_window_state(gid, -1);
+	hgl_window_state(gid, 0);
 	strncpy(hgl_iris.title, name ? name : "", sizeof hgl_iris.title - 1);
 	hgl_iris.title[sizeof hgl_iris.title - 1] = '\0';
 	wins[gid].noport = cons.noport;
@@ -1181,6 +1187,14 @@ gconfig(void)
 {
 	TRACE("gconfig");
 	hgl_iris_ensure();
+	/* gconfig(3G): the colour is zero, the writemask all the planes, and
+	 * a double-buffered window draws into the back buffer only. */
+	hgl_iris.front = 0;
+	wmpack(0xffffffffUL);
+	if (hgl_iris.want_rgb)
+		hgl_set_colour(0.0f, 0.0f, 0.0f, 0.0f);
+	else
+		color(0);
 }
 
 void

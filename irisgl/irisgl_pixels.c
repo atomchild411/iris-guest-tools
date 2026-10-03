@@ -74,8 +74,6 @@ pixmode(long mode, long value)
 	case PM_SHIFT: case PM_EXPAND: case PM_C0: case PM_C1: case PM_ADD24:
 	case PM_STRIDE: case PM_TTOB: case PM_RTOL: case PM_ZDATA:
 		pm[mode] = value;
-		if (mode == PM_ZDATA && value)
-			say_once("pixmode(PM_ZDATA) is not implemented: pixels stay colours");
 		return;
 	case PM_INPUT_FORMAT: case PM_INPUT_TYPE: case PM_OUTPUT_FORMAT: case PM_OUTPUT_TYPE:
 		/* PM_ABGR and PM_UNSIGNED_BYTE (both 0) are the defaults. */
@@ -105,7 +103,9 @@ readsource(long src)
 	read_source = src;
 	/* The host's front and back are one drawable; the choice is kept for
 	 * the z-buffer and for what a program asks back. */
-	if (src == SRC_FRONT || src == SRC_FRONTRIGHT)
+	/* A single-buffered window draws into the GL back buffer, which is
+	 * its front as the program sees it. */
+	if ((src == SRC_FRONT || src == SRC_FRONTRIGHT) && hgl_iris.want_double)
 		glReadBuffer(GL_FRONT);
 	else if (src != SRC_ZBUFFER)
 		glReadBuffer(GL_BACK);
@@ -291,6 +291,50 @@ scratch(unsigned long bytes)
 	return buf;
 }
 
+/*
+ * pixmode(PM_ZDATA, 1): the pixels are z values, in the screen z units
+ * getgdesc(GD_ZMAX) reports, and colour is never written (pixmode(3G)).
+ * With zbuffer on they are compared as usual; with it off they are written
+ * as they are -- and OpenGL writes depth only while its depth test is on,
+ * so that is an always-passing test.
+ */
+static void
+z_write(int x, int y, int w, int h, const unsigned long *parray)
+{
+	float *z;
+	unsigned long words, bit;
+	int r, c;
+
+	if ((z = (float *)malloc((size_t)w * h * sizeof *z)) == NULL)
+		return;
+	words = row_words(w);
+	for (r = 0; r < h; r++) {
+		int dr = pm[PM_TTOB] ? h - 1 - r : r;
+		const unsigned char *row = (const unsigned char *)parray + (unsigned long)r * words * 4;
+
+		bit = (unsigned long)pm[PM_OFFSET];
+		for (c = 0; c < w; c++, bit += pm[PM_SIZE]) {
+			int dc = pm[PM_RTOL] ? w - 1 - c : c;
+			unsigned long v = shift_add(get_bits(row, bit, (int)pm[PM_SIZE]), 0) & 0xffffff;
+			float d = (float)v / (float)0x7fffff;
+
+			z[(unsigned long)dr * w + dc] = d > 1.0f ? 1.0f : d;
+		}
+	}
+	glPushAttrib(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_ENABLE_BIT);
+	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+	glDepthMask(GL_TRUE);
+	if (!(hgl_iris.enables & 1u)) {
+		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_ALWAYS);
+	}
+	raster_at(x, y);
+	glDrawPixels(w, h, GL_DEPTH_COMPONENT, GL_FLOAT, z);
+	raster_done();
+	glPopAttrib();
+	free(z);
+}
+
 void
 lrectwrite(Screencoord x1, Screencoord y1, Screencoord x2, Screencoord y2, const unsigned long *parray)
 {
@@ -306,6 +350,10 @@ lrectwrite(Screencoord x1, Screencoord y1, Screencoord x2, Screencoord y2, const
 	/* x1, y1 is the lower left of what is filled, whatever the zoom. */
 	x = x1;
 	y = y1;
+	if (pm[PM_ZDATA]) {
+		z_write(x, y, w, h, parray);
+		return;
+	}
 	if (!index && pm_plain() && pm_formats_default) {
 		/* 0xAABBGGRR in memory is the bytes A, B, G, R. */
 		raster_at(x, y);

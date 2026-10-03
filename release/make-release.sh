@@ -35,7 +35,9 @@ MIPSPRO=${1:-$GT/build/gl}
 # The IRIS each protocol needs. A new protocol gets a line here.
 iris_for() {
 	case "$1" in
-	2) echo "techomancer/iris from commit 1a93808 (2026-09-30) on, built with --features hostgl, on macOS" ;;
+	2) echo "techomancer/iris from commit 1a93808 (2026-09-30) on, built with --features hostgl, on macOS;"
+	   echo "                   glAccum and the packed pixel types (5_6_5, 2_3_3_REV, 8_8_8_8_REV) also need"
+	   echo "                   IRIS's accumulation-buffer and packed-pixel host GL changes (not merged yet)" ;;
 	*) echo "an IRIS whose host GL speaks protocol $1" ;;
 	esac
 }

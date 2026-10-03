@@ -25,10 +25,18 @@ You need:
   | IRIX machine | `cargo build --release --features ...` | notes |
   |---|---|---|
   | any | `hostgl` | the minimum: GL frames go back to the program, which puts them up through X |
-  | Indigo2 IMPACT R10000 (IP28) | `hostgl,ip28,jitv2,tcache` | `ip28` is the machine; `jitv2` the JIT, `tcache` its fast loads and stores on the R10000; frames composite straight into the IMPACT framebuffer |
+  | Indigo2 IMPACT R10000 (IP28) | `hostgl,jitv2,tcache` | IP28 is in IRIS's default build now; `jitv2` the JIT, `tcache` its fast loads and stores on the R10000; frames composite straight into the IMPACT framebuffer |
   | Indy, other Indigo2 | `hostgl` plus the usual speed features, e.g. `lightning,rex-jit` or `jitv2` | |
 
-  Add `chd` for CHD disk images. Tested so far on the IP28 with IMPACT.
+  Two things need IRIS changes that are not merged yet: glAccum (IRIS keeps
+  the accumulation buffer, since every host drawable is an offscreen
+  framebuffer) and the packed pixel types `5_6_5`, `2_3_3_REV` and
+  `8_8_8_8_REV` (IRIS stops swapping two of them, which only IRIX 6.5.7's
+  `gl.h` had the wrong way round). Without them `gltest` fails those checks
+  and everything else works.
+
+  CHD disk images work in IRIS's default build. Tested so far on the IP28
+  with IMPACT.
 - **IRIX 6.5** running in it, with a desktop you can log in to.
 - **A release** from this repository's Releases page. Its `VERSION` names the
   host GL protocol it speaks and the IRIS that speaks it; the library checks

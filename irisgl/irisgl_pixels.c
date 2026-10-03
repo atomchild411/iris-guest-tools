@@ -822,3 +822,139 @@ lmcolor(long mode)
 
 void cmovi(Icoord x, Icoord y, Icoord z) { hgl_iris_ensure(); hgl_rasterpos((float)x, (float)y, (float)z); hgl_raster_serial = hgl_colour_serial; }
 void cmovs(Scoord x, Scoord y, Scoord z) { hgl_iris_ensure(); hgl_rasterpos((float)x, (float)y, (float)z); hgl_raster_serial = hgl_colour_serial; }
+
+/* ---- accumulation (acbuf(3G)) ----
+ *
+ * IRIS GL counts accumulation values in 0..255 per component, OpenGL in
+ * 0..1; the operations are glAccum's, one for one, where the context has
+ * an accumulation buffer. The host's has none, so the buffer is kept here:
+ * floats per component of the window, filled from the read buffer and
+ * written back with glDrawPixels -- slower, but acbuf runs a few times a
+ * frame (jittered antialiasing, motion blur).
+ */
+static long ac_planes;
+static float *acc;
+static int acc_w, acc_h, acc_host = -1;
+
+void
+acsize(long planes)
+{
+	ac_planes = planes;
+}
+
+static int
+acc_ready(void)
+{
+	int w = hgl_iris.w, h = hgl_iris.h;
+
+	if (w <= 0 || h <= 0)
+		return 0;
+	if (acc == NULL || acc_w != w || acc_h != h) {
+		free(acc);
+		acc = (float *)calloc((size_t)w * h * 4, sizeof *acc);
+		acc_w = acc == NULL ? 0 : w;
+		acc_h = acc == NULL ? 0 : h;
+	}
+	return acc != NULL;
+}
+
+/* The read buffer's pixels times v, into the buffer (or over it). */
+static void
+acc_take(float v, int load)
+{
+	unsigned char *px;
+	size_t i, n;
+
+	if (!acc_ready() || (px = scratch((unsigned long)acc_w * acc_h * 4)) == NULL)
+		return;
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glReadPixels(0, 0, acc_w, acc_h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+	n = (size_t)acc_w * acc_h * 4;
+	for (i = 0; i < n; i++)
+		acc[i] = (load ? 0.0f : acc[i]) + v * (px[i] / 255.0f);
+}
+
+/* The buffer times v, clamped, written over the window: nothing but the
+ * screenmask and writemask applies (acbuf(3G)). */
+static void
+acc_return(float v)
+{
+	static const GLenum off[] = {
+		GL_DEPTH_TEST, GL_BLEND, GL_COLOR_LOGIC_OP, GL_ALPHA_TEST, GL_STENCIL_TEST, GL_DITHER
+	};
+	unsigned char *px;
+	size_t i, n;
+	int k;
+
+	if (!acc_ready() || (px = scratch((unsigned long)acc_w * acc_h * 4)) == NULL)
+		return;
+	n = (size_t)acc_w * acc_h * 4;
+	for (i = 0; i < n; i++) {
+		float c = acc[i] * v;
+		px[i] = (unsigned char)(c <= 0.0f ? 0 : c >= 1.0f ? 255 : c * 255.0f + 0.5f);
+	}
+	glPushAttrib(GL_ENABLE_BIT | GL_PIXEL_MODE_BIT);
+	for (k = 0; k < (int)(sizeof off / sizeof off[0]); k++)
+		glDisable(off[k]);
+	glPixelZoom(1.0f, 1.0f);
+	raster_at(0, 0);
+	glDrawPixels(acc_w, acc_h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+	raster_done();
+	glPopAttrib();
+}
+
+void
+acbuf(long op, float value)
+{
+	float v;
+	size_t i, n;
+
+	hgl_irisgl_tracef("acbuf %ld %g", op, value);
+	hgl_iris_ensure();
+	if (hgl_selecting)
+		return;
+	if (acc_host < 0) {
+		GLint bits = 0;
+		glGetIntegerv(GL_ACCUM_RED_BITS, &bits);
+		acc_host = bits > 0;
+	}
+	if (op == AC_ACCUMULATE || op == AC_CLEAR_ACCUMULATE)
+		value = value < -256.0f ? -256.0f : value > 256.0f ? 256.0f : value;
+	if (op == AC_RETURN)
+		value = value < 0.0f ? 0.0f : value > 1.0f ? 1.0f : value;
+	if (acc_host) {
+		switch (op) {
+		case AC_CLEAR:
+			v = value / 255.0f;
+			glClearAccum(v, v, v, v);
+			glClear(GL_ACCUM_BUFFER_BIT);
+			break;
+		case AC_ACCUMULATE: glAccum(GL_ACCUM, value); break;
+		case AC_CLEAR_ACCUMULATE: glAccum(GL_LOAD, value); break;
+		case AC_RETURN: glAccum(GL_RETURN, value); break;
+		case AC_MULT: glAccum(GL_MULT, value); break;
+		case AC_ADD: glAccum(GL_ADD, value / 255.0f); break;
+		}
+		return;
+	}
+	switch (op) {
+	case AC_CLEAR:
+	case AC_ADD:
+		if (!acc_ready())
+			return;
+		n = (size_t)acc_w * acc_h * 4;
+		for (i = 0; i < n; i++)
+			acc[i] = (op == AC_ADD ? acc[i] : 0.0f) + value / 255.0f;
+		break;
+	case AC_ACCUMULATE: acc_take(value, 0); break;
+	case AC_CLEAR_ACCUMULATE: acc_take(value, 1); break;
+	case AC_RETURN: acc_return(value); break;
+	case AC_MULT:
+		if (!acc_ready())
+			return;
+		n = (size_t)acc_w * acc_h * 4;
+		for (i = 0; i < n; i++)
+			acc[i] *= value;
+		break;
+	}
+}

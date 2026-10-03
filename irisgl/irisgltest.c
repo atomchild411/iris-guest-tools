@@ -1203,6 +1203,104 @@ t_mapw_mipmap(void)
 	winclose(gid);
 }
 
+/* subtexload: part of a texture, in a mipmapped and a plain one. */
+static void
+t_subtexload(void)
+{
+	static unsigned long green[4 * 4], red[2 * 4];
+	static float point[] = { TX_MINFILTER, TX_POINT, TX_MAGFILTER, TX_POINT, TX_NULL };
+	static float decal[] = { TV_DECAL, TV_NULL };
+	long gid = rgb_window("irisgltest subtexload");
+	unsigned long a, b;
+	char what[96];
+	int i, k;
+
+	for (i = 0; i < 16; i++)
+		green[i] = 0xff00ff00UL;
+	for (i = 0; i < 8; i++)
+		red[i] = 0xff0000ffUL;
+	tevdef(7, 2, decal);
+	for (k = 0; k < 2; k++) {
+		texdef2d(7, 4, 4, 4, green, k ? 5 : 0, k ? point : NULL);
+		subtexload(TX_TEXTURE_0, 7, 0.0f, 0.5f, 0.0f, 1.0f, 8, red, 0);
+		texbind(TX_TEXTURE_0, 7);
+		tevbind(TV_ENV0, 7);
+		textured_quad();
+		tevbind(TV_ENV0, 0);
+		texbind(TX_TEXTURE_0, 0);
+		a = pix(15, 30);
+		b = pix(45, 30);
+		sprintf(what, "subtexload the left half red (%s): %06lx | %06lx", k ? "plain" : "mipmapped", a, b);
+		check(what, a == C_RED && b == C_GREEN);
+	}
+	winclose(gid);
+}
+
+/* The accumulation buffer: half of red, returned. */
+static void
+t_acbuf(void)
+{
+	long gid;
+	unsigned long p;
+	char what[96];
+
+	prefsize(W, H);
+	gid = winopen("irisgltest acbuf");
+	RGBmode();
+	acsize(16);
+	gconfig();
+	pixel_ortho(0);
+	cpack(C_RED);
+	clear();
+	acbuf(AC_CLEAR_ACCUMULATE, 0.5f);
+	cpack(C_BLACK);
+	clear();
+	acbuf(AC_RETURN, 1.0f);
+	p = pix(30, 30);
+	sprintf(what, "acbuf: half of red accumulated and returned: %06lx", p);
+	check(what, chan(p, 0) > 110 && chan(p, 0) < 145 && chan(p, 8) == 0);
+	winclose(gid);
+}
+
+/* Old-style curves and patches on a Bezier basis (GLPG-II 14-35). */
+static void
+t_oldcurves(void)
+{
+	static Matrix bezier = {
+		{ -1.0f, 3.0f, -3.0f, 1.0f }, { 3.0f, -6.0f, 3.0f, 0.0f },
+		{ -3.0f, 3.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 0.0f }
+	};
+	/* a straight Bezier from (10,10) to (50,10), and an arch above it */
+	static Coord line[4][3] = { { 10, 10, 0 }, { 23, 10, 0 }, { 37, 10, 0 }, { 50, 10, 0 } };
+	/* a flat patch over 60..90: x varies with v (columns), y with u (rows) */
+	static Matrix gx = {
+		{ 60, 70, 80, 90 }, { 60, 70, 80, 90 }, { 60, 70, 80, 90 }, { 60, 70, 80, 90 }
+	};
+	static Matrix gy = {
+		{ 60, 60, 60, 60 }, { 70, 70, 70, 70 }, { 80, 80, 80, 80 }, { 90, 90, 90, 90 }
+	};
+	static Matrix gz = { { 0 } };
+	long gid = rgb_window("irisgltest curves");
+	char what[96];
+
+	defbasis(1, bezier);
+	curvebasis(1);
+	curveprecision(20);
+	cpack(C_RED);
+	crv(line);
+	sprintf(what, "crv draws a Bezier segment (30,10): %06lx", pix(30, 10));
+	check(what, pix(30, 10) == C_RED && pix(50, 10) == C_RED);
+
+	patchbasis(1, 1);
+	patchcurves(4, 4);
+	patchprecision(12, 12);
+	cpack(C_GREEN);
+	patch(gx, gy, gz);
+	sprintf(what, "patch draws its wireframe edges (60,75) (75,60): %06lx %06lx", pix(60, 75), pix(75, 60));
+	check(what, pix(60, 75) == C_GREEN && pix(75, 60) == C_GREEN && pix(65, 65) == C_BLACK);
+	winclose(gid);
+}
+
 static void
 t_blend(void)
 {
@@ -1625,6 +1723,9 @@ main(void)
 	t_config_state();
 	t_zdata();
 	t_mapw_mipmap();
+	t_subtexload();
+	t_acbuf();
+	t_oldcurves();
 	t_nurbs();
 	t_layers();
 	t_glx_mixed();

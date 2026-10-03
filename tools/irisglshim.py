@@ -126,7 +126,9 @@ HANDWRITTEN = {
     "pick", "endpick", "gselect", "endselect", "picksize",
     "blendcolor",
     "lRGBrange", "RGBrange", "lshaderange", "shaderange",
-    "getopenobj", "colorf", "setdepth", "mapw", "mapw2",
+    "getopenobj", "colorf", "setdepth", "mapw", "mapw2", "subtexload", "acsize", "acbuf",
+    "defbasis", "curvebasis", "curveprecision", "crv", "crvn", "rcrv", "rcrvn",
+    "patchbasis", "patchcurves", "patchprecision", "patch", "rpatch",
     "initnames", "loadname", "pushname", "popname",
     # --- NURBS curves and surfaces, through GLU (irisgl_nurbs.c): powerflip ---
     "bgnsurface", "endsurface", "nurbssurface", "bgntrim", "endtrim", "pwlcurve",

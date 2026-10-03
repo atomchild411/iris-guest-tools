@@ -725,6 +725,30 @@ apply_material(GLenum face, short index)
 	glMaterialf(face, GL_SHININESS, m->shininess > 128 ? 128 : m->shininess);
 }
 
+/*
+ * A light's AMBIENT is never attenuated in IRIS GL: attenuation applies to
+ * a point light's diffuse and specular only (GLPG-I 9-14). OpenGL
+ * attenuates a positional light's ambient too, so the lights' ambient is
+ * added to the lighting model's, which nothing attenuates, and the lights
+ * themselves carry none.
+ */
+static void
+update_ambient(void)
+{
+	GLfloat a[4];
+	int n, k;
+
+	if (bound_lmodel)
+		memcpy(a, lmodels[bound_lmodel].ambient, sizeof a);
+	else
+		a[0] = a[1] = a[2] = 0.2f, a[3] = 1.0f;
+	for (n = 0; n < MAXLIGHTS; n++)
+		if (bound_light[n])
+			for (k = 0; k < 3; k++)
+				a[k] += lights[bound_light[n]].ambient[k];
+	glLightModelfv(GL_LIGHT_MODEL_AMBIENT, a);
+}
+
 static void
 apply_attenuation(int n)
 {
@@ -743,7 +767,10 @@ apply_light(int n, short index)
 	Light *l = &lights[index];
 	GLenum gl = GL_LIGHT0 + n;
 
-	glLightfv(gl, GL_AMBIENT, l->ambient);
+	{
+		static const GLfloat none[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		glLightfv(gl, GL_AMBIENT, none);	/* see update_ambient */
+	}
 	glLightfv(gl, GL_DIFFUSE, l->colour);
 	glLightfv(gl, GL_SPECULAR, l->colour);
 	glLightfv(gl, GL_POSITION, l->position);
@@ -752,6 +779,7 @@ apply_light(int n, short index)
 	glLightf(gl, GL_SPOT_CUTOFF, l->spot_cutoff > 90 ? 180 : l->spot_cutoff);
 	apply_attenuation(n);
 	glEnable(gl);
+	update_ambient();
 }
 
 static void
@@ -760,7 +788,7 @@ apply_lmodel(short index)
 	LModel *m = &lmodels[index];
 	int n;
 
-	glLightModelfv(GL_LIGHT_MODEL_AMBIENT, m->ambient);
+	update_ambient();
 	glLightModelf(GL_LIGHT_MODEL_LOCAL_VIEWER, m->localviewer);
 	glLightModelf(GL_LIGHT_MODEL_TWO_SIDE, m->twoside);
 	for (n = 0; n < MAXLIGHTS; n++)
@@ -805,6 +833,7 @@ lmbind(short target, short index)
 			apply_light(n, index);
 		else
 			glDisable(GL_LIGHT0 + n);
+		update_ambient();
 	} else if (target == LMODEL) {
 		if (id)
 			index = def_slot(lmodel_ids, id, 0);
@@ -922,33 +951,16 @@ tex_props(long np, const float props[], struct texprops *tp)
  * for a one-component texture, and flight, whose first texture is exactly
  * that, died reading past the end of it.
  */
-void
-texdef2d(long index, long nc, long width, long height,
-    const unsigned long *image, long np, const float props[])
+/* texdef2d's texels (w x h, nc components, 8 or 16 bits each, rows on
+ * long-word boundaries) as RGBA bytes into out. */
+static void
+texels_rgba(const unsigned char *src, long w, long h, long nc, int pack16, unsigned char *out)
 {
-	struct texprops tp;
-	const unsigned char *src = (const unsigned char *)image;
-	unsigned char *buf;
-	long x, y, bpc, row;
+	long x, y, bpc = pack16 ? 2 : 1, row = (w * nc * bpc + 3) & ~3L;
 
-	{
-		char what[80];
-		sprintf(what, "texdef2d index %ld nc %ld %ldx%ld np %ld", index, nc, width, height, np);
-		TRACE(what);
-	}
-	hgl_iris_ensure();
-	if (width <= 0 || height <= 0 || nc < 1 || nc > 4 || (index = def_slot(tex_ids, index, 1)) == 0)
-		return;
-	tex_props(np, props, &tp);
-	bpc = tp.pack16 ? 2 : 1;
-	row = (width * nc * bpc + 3) & ~3L;
-	buf = (unsigned char *)malloc(width * height * 4);
-	if (!buf)
-		return;
-	for (y = 0; y < height; y++) {
+	for (y = 0; y < h; y++) {
 		const unsigned char *in = src + y * row;
-		unsigned char *out = buf + y * width * 4;
-		for (x = 0; x < width; x++, out += 4) {
+		for (x = 0; x < w; x++, out += 4) {
 			/* The top byte of each component: a 16-bit one is big-endian. */
 			const unsigned char *t = in + x * nc * bpc;
 #define C(k) t[(k) * bpc]
@@ -973,6 +985,56 @@ texdef2d(long index, long nc, long width, long height,
 #undef C
 		}
 	}
+}
+
+/* What subtexload needs to know of each texture: its size and format, and
+ * for a mipmapped one the image, since its levels are built again. */
+static struct {
+	long w, h, nc;
+	int pack16, mipmap;
+	unsigned char *rgba;
+} texinfo[MAXDEF];
+
+static void
+tex_upload(int slot)
+{
+	if (texinfo[slot].mipmap)
+		gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA, (GLint)texinfo[slot].w, (GLint)texinfo[slot].h,
+		    GL_RGBA, GL_UNSIGNED_BYTE, texinfo[slot].rgba);
+	else
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)texinfo[slot].w, (GLsizei)texinfo[slot].h,
+		    0, GL_RGBA, GL_UNSIGNED_BYTE, texinfo[slot].rgba);
+}
+
+void
+texdef2d(long index, long nc, long width, long height,
+    const unsigned long *image, long np, const float props[])
+{
+	struct texprops tp;
+	unsigned char *buf;
+
+	{
+		char what[80];
+		sprintf(what, "texdef2d index %ld nc %ld %ldx%ld np %ld", index, nc, width, height, np);
+		TRACE(what);
+	}
+	hgl_iris_ensure();
+	if (width <= 0 || height <= 0 || nc < 1 || nc > 4 || (index = def_slot(tex_ids, index, 1)) == 0)
+		return;
+	tex_props(np, props, &tp);
+	/* "The user may also pass a null array" and fill it with subtexload */
+	buf = (unsigned char *)calloc((size_t)width * height, 4);
+	if (!buf)
+		return;
+	if (image != NULL)
+		texels_rgba((const unsigned char *)image, width, height, nc, tp.pack16, buf);
+	free(texinfo[index].rgba);
+	texinfo[index].w = width;
+	texinfo[index].h = height;
+	texinfo[index].nc = nc;
+	texinfo[index].pack16 = tp.pack16;
+	texinfo[index].mipmap = tp.minf != GL_NEAREST && tp.minf != GL_LINEAR;
+	texinfo[index].rgba = buf;
 	if (!texnames[index])
 		glGenTextures(1, &texnames[index]);
 	glBindTexture(GL_TEXTURE_2D, texnames[index]);
@@ -980,14 +1042,54 @@ texdef2d(long index, long nc, long width, long height,
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, tp.magf);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, tp.wrap_s);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, tp.wrap_t);
-	if (tp.minf == GL_NEAREST || tp.minf == GL_LINEAR)
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)width, (GLsizei)height, 0,
-		    GL_RGBA, GL_UNSIGNED_BYTE, buf);
-	else
-		gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA, (GLint)width, (GLint)height,
-		    GL_RGBA, GL_UNSIGNED_BYTE, buf);
-	free(buf);
+	tex_upload(index);
+	if (!texinfo[index].mipmap) {
+		free(buf);
+		texinfo[index].rgba = NULL;
+	}
 	/* defining a texture does not bind it */
+	glBindTexture(GL_TEXTURE_2D, tex_bound ? texnames[tex_bound] : 0);
+}
+
+/*
+ * subtexload(3G): part of a defined texture, the texel rectangle the
+ * texture coordinates s0..s1, t0..t1 cover, in texdef2d's format. A
+ * mipmapped texture has its image patched and its levels built again.
+ */
+void
+subtexload(long target, long id, float s0, float s1, float t0, float t1, long numwords,
+    const unsigned long *texture, unsigned long flags)
+{
+	long slot, x0, y0, w, h, r;
+	unsigned char *rgba;
+
+	(void)numwords;
+	(void)flags;
+	hgl_irisgl_tracef("subtexload %ld", id);
+	hgl_iris_ensure();
+	if (target != TX_TEXTURE_0 || texture == NULL || (slot = def_slot(tex_ids, id, 0)) == 0 ||
+	    !texnames[slot] || texinfo[slot].w <= 0)
+		return;
+	x0 = (long)(s0 * texinfo[slot].w + 0.5f);
+	y0 = (long)(t0 * texinfo[slot].h + 0.5f);
+	w = (long)(s1 * texinfo[slot].w + 0.5f) - x0;
+	h = (long)(t1 * texinfo[slot].h + 0.5f) - y0;
+	if (x0 < 0 || y0 < 0 || w <= 0 || h <= 0 || x0 + w > texinfo[slot].w || y0 + h > texinfo[slot].h)
+		return;
+	if ((rgba = (unsigned char *)malloc((size_t)w * h * 4)) == NULL)
+		return;
+	texels_rgba((const unsigned char *)texture, w, h, texinfo[slot].nc, texinfo[slot].pack16, rgba);
+	glBindTexture(GL_TEXTURE_2D, texnames[slot]);
+	if (texinfo[slot].mipmap && texinfo[slot].rgba != NULL) {
+		for (r = 0; r < h; r++)
+			memcpy(texinfo[slot].rgba + ((y0 + r) * texinfo[slot].w + x0) * 4, rgba + r * w * 4,
+			    (size_t)w * 4);
+		tex_upload((int)slot);
+	} else {
+		glTexSubImage2D(GL_TEXTURE_2D, 0, (GLint)x0, (GLint)y0, (GLsizei)w, (GLsizei)h,
+		    GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	}
+	free(rgba);
 	glBindTexture(GL_TEXTURE_2D, tex_bound ? texnames[tex_bound] : 0);
 }
 

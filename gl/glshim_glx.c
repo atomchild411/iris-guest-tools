@@ -816,6 +816,14 @@ glXGetConfig(Display *dpy, XVisualInfo *vis, int attrib, int *value)
 	case GLX_STENCIL_SIZE:
 		*value = 8;
 		break;
+	/* The accumulation buffer IRIS keeps for each drawable (its framebuffer
+	 * objects can have none): floats, reported as SGI's 16 bits. */
+	case GLX_ACCUM_RED_SIZE:
+	case GLX_ACCUM_GREEN_SIZE:
+	case GLX_ACCUM_BLUE_SIZE:
+	case GLX_ACCUM_ALPHA_SIZE:
+		*value = 16;
+		break;
 	default:
 		*value = 0;
 		break;

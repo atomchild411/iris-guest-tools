@@ -171,6 +171,38 @@ t_draw(void)
 	check("immediate mode quad is drawn", pixel(16, 16) == 0xff0000 && pixel(40, 40) == 0);
 }
 
+/*
+ * The accumulation buffer, which IRIS keeps for each drawable (its
+ * framebuffer objects can have none): a red half loaded and a blue half
+ * accumulated return purple, and the program is told it has the planes.
+ */
+static void
+t_accum(void)
+{
+	GLint bits = 0;
+	unsigned long p;
+	char what[96];
+
+	glGetIntegerv(GL_ACCUM_RED_BITS, &bits);
+	sprintf(what, "GL_ACCUM_RED_BITS: %d", (int)bits);
+	check(what, bits > 0);
+	reset_view();
+	glClearColor(1, 0, 0, 1);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glAccum(GL_LOAD, 0.5f);
+	glClearColor(0, 0, 1, 1);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glAccum(GL_ACCUM, 0.5f);
+	glClearColor(0, 0, 0, 0);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glAccum(GL_RETURN, 1.0f);
+	p = pixel(16, 16);
+	sprintf(what, "glAccum: half red loaded, half blue accumulated, returned: %06lx", p);
+	check(what, (p >> 16 & 0xff) >= 0x7e && (p >> 16 & 0xff) <= 0x82 && (p & 0xff) >= 0x7e &&
+	    (p & 0xff) <= 0x82 && (p >> 8 & 0xff) == 0);
+	check("glAccum: no GL error", glGetError() == GL_NO_ERROR);
+}
+
 static void
 t_lists(void)
 {
@@ -2060,6 +2092,7 @@ main(void)
 	t_glx(dpy, win, ctx);
 	t_state();
 	t_draw();
+	t_accum();
 	t_lists();
 	t_arrays();
 	t_pixels();

@@ -28,12 +28,12 @@ You need:
   | Indigo2 IMPACT R10000 (IP28) | `hostgl,jitv2,tcache` | IP28 is in IRIS's default build now; `jitv2` the JIT, `tcache` its fast loads and stores on the R10000; frames composite straight into the IMPACT framebuffer |
   | Indy, other Indigo2 | `hostgl` plus the usual speed features, e.g. `lightning,rex-jit` or `jitv2` | |
 
-  Two things need IRIS changes that are not merged yet: glAccum (IRIS keeps
-  the accumulation buffer, since every host drawable is an offscreen
-  framebuffer) and the packed pixel types `5_6_5`, `2_3_3_REV` and
-  `8_8_8_8_REV` (IRIS stops swapping two of them, which only IRIX 6.5.7's
-  `gl.h` had the wrong way round). Without them `gltest` fails those checks
-  and everything else works.
+  Two things need IRIS from 2026-10-03 (`181c8b1` and `6bc2082`) or later:
+  glAccum (IRIS keeps the accumulation buffer, since every host drawable is
+  an offscreen framebuffer) and the packed pixel types `5_6_5`, `2_3_3_REV`
+  and `8_8_8_8_REV` (IRIS stopped swapping two of them, which only IRIX
+  6.5.7's `gl.h` had the wrong way round). On an older IRIS `gltest` fails
+  those checks and everything else works.
 
   CHD disk images work in IRIS's default build. Tested so far on the IP28
   with IMPACT.

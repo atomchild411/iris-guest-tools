@@ -1,6 +1,7 @@
 /*
- * glcheck -- render N frames through IRIS's host OpenGL and print checksums
- * of what glReadPixels gives back.
+ * glcheck -- render N frames through OpenGL and print checksums of what
+ * glReadPixels gives back: IRIS's host OpenGL, or SGI's libGL on an emulated
+ * board (IMPACT), so the two can be compared.
  *
  *   glcheck [frames] [size]          (default 60 frames, 256x256)
  *
@@ -13,10 +14,16 @@
  * a diamond from client arrays with glDrawArrays, which the host reads from this
  * process's memory at the draw.
  *
- * The checksums are the host GPU's rasterisation, so they are stable on one
- * machine: `cargo test -p iris-hostgl --release -- --nocapture glcheck_reference`
- * replays the same frames on the host directly and prints the numbers to
- * compare with. The exact-pixel checks hold everywhere.
+ * The checksums are the renderer's rasterisation, so they are stable on one
+ * machine: for host GL, `cargo test -p iris-hostgl --release -- --nocapture
+ * glcheck_reference` replays the same frames on the host directly and prints
+ * the numbers to compare with. The exact-pixel checks hold everywhere, also
+ * on 12-bit visuals (4 bits a channel): every colour they test is exact there.
+ *
+ * The visual is 8/8/8 RGB, double-buffered, when the screen has one; a Solid
+ * IMPACT has no double-buffered 24-bit visual, so then any double-buffered RGB
+ * visual (12-bit there), then a single-buffered 8/8/8 one. The one chosen is
+ * printed.
  *
  * Output: "ok"/"FAIL" lines, one checksum line per frame, a summary, and
  * "glcheck: PASSED" or "glcheck: FAILED". Exit status 0 when every check
@@ -111,11 +118,33 @@ draw_frame(int i, int size, GLfloat *disc_xy, GLubyte *disc_rgba)
 	}
 }
 
+/*
+ * The best RGB visual for the test: 8/8/8 double-buffered, else any
+ * double-buffered RGB visual, else 8/8/8 single-buffered.
+ */
+static XVisualInfo *
+choose_visual(Display *dpy, int *doublebuffered)
+{
+	static int deep_db[] = { GLX_RGBA, GLX_DOUBLEBUFFER, GLX_RED_SIZE, 8,
+	    GLX_GREEN_SIZE, 8, GLX_BLUE_SIZE, 8, None };
+	static int any_db[] = { GLX_RGBA, GLX_DOUBLEBUFFER, GLX_RED_SIZE, 1,
+	    GLX_GREEN_SIZE, 1, GLX_BLUE_SIZE, 1, None };
+	static int deep_sb[] = { GLX_RGBA, GLX_RED_SIZE, 8,
+	    GLX_GREEN_SIZE, 8, GLX_BLUE_SIZE, 8, None };
+	XVisualInfo *vi;
+
+	*doublebuffered = 1;
+	if ((vi = glXChooseVisual(dpy, DefaultScreen(dpy), deep_db)) != NULL)
+		return vi;
+	if ((vi = glXChooseVisual(dpy, DefaultScreen(dpy), any_db)) != NULL)
+		return vi;
+	*doublebuffered = 0;
+	return glXChooseVisual(dpy, DefaultScreen(dpy), deep_sb);
+}
+
 int
 main(int argc, char **argv)
 {
-	static int attribs[] = { GLX_RGBA, GLX_DOUBLEBUFFER, GLX_RED_SIZE, 8,
-	    GLX_GREEN_SIZE, 8, GLX_BLUE_SIZE, 8, None };
 	int frames = argc > 1 ? atoi(argv[1]) : 60;
 	int size = argc > 2 ? atoi(argv[2]) : 256;
 	Display *dpy;
@@ -128,7 +157,7 @@ main(int argc, char **argv)
 	unsigned long sum, all = 2166136261UL;
 	unsigned char *p, sums[4];
 	double t0, t1;
-	int i, k, c;
+	int i, k, c, db, bits[4];
 
 	if (frames < 1 || size < 16 || size > 2048) {
 		printf("usage: glcheck [frames >= 1] [16 <= size <= 2048]\n");
@@ -139,10 +168,10 @@ main(int argc, char **argv)
 		return 2;
 	}
 	if (!glXQueryExtension(dpy, NULL, NULL)) {
-		printf("glcheck: no GLX (is this running under IRIS with host GL?)\n");
+		printf("glcheck: no GLX on this display\n");
 		return 2;
 	}
-	if ((vi = glXChooseVisual(dpy, DefaultScreen(dpy), attribs)) == NULL) {
+	if ((vi = choose_visual(dpy, &db)) == NULL) {
 		printf("glcheck: no visual\n");
 		return 2;
 	}
@@ -160,6 +189,12 @@ main(int argc, char **argv)
 	}
 	printf("glcheck: GL_VENDOR %s, GL_RENDERER %s, GL_VERSION %s\n", (char *)glGetString(GL_VENDOR),
 	    (char *)glGetString(GL_RENDERER), (char *)glGetString(GL_VERSION));
+	glGetIntegerv(GL_RED_BITS, &bits[0]);
+	glGetIntegerv(GL_GREEN_BITS, &bits[1]);
+	glGetIntegerv(GL_BLUE_BITS, &bits[2]);
+	glGetIntegerv(GL_ALPHA_BITS, &bits[3]);
+	printf("glcheck: visual %#lx, depth %d, RGBA %d/%d/%d/%d, %s-buffered\n", (unsigned long)vi->visualid,
+	    vi->depth, bits[0], bits[1], bits[2], bits[3], db ? "double" : "single");
 
 	/* The disc: a fan around the centre, the colour turning along the rim. */
 	disc_xy = malloc(sizeof(GLfloat) * 2 * (DISC + 2));

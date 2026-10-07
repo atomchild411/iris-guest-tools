@@ -41,6 +41,13 @@
  * the checksums. Exit status 0 when every check passed.
  *
  * Needs DISPLAY and the shim libGL (build.sh).
+ *
+ * With SGI's own libGL in place instead (an emulated IMPACT, say) the pass is
+ * called "native" and prints the renderer, so the same numbers can be set
+ * beside host GL's. The visual is 8/8/8 double-buffered when the screen has
+ * one, else any double-buffered RGB visual (a Solid IMPACT's are 12-bit),
+ * else 8/8/8 single-buffered; it is printed, since the read-back checksums
+ * depend on it.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,6 +77,8 @@ struct result {
 	int appframes, appw, apph;
 	double glcheck_s, swap_s, upload_s, readback_s, quake_s, app_s;
 	unsigned long glcheck_sum, upload_sum, readback_sum, quake_sum, app_sum;
+	char renderer[48];      /* GL_RENDERER */
+	int visdepth, visbits, doublebuffered;
 	char phases[16];
 };
 
@@ -321,12 +330,34 @@ make_window(Display *dpy, XVisualInfo *vi, int x, int w, int h, const char *name
 	return win;
 }
 
+/*
+ * The best RGB visual for the benchmark: 8/8/8 double-buffered, else any
+ * double-buffered RGB visual, else 8/8/8 single-buffered.
+ */
+static XVisualInfo *
+choose_visual(Display *dpy, int *doublebuffered)
+{
+	static int deep_db[] = { GLX_RGBA, GLX_DOUBLEBUFFER, GLX_RED_SIZE, 8,
+	    GLX_GREEN_SIZE, 8, GLX_BLUE_SIZE, 8, None };
+	static int any_db[] = { GLX_RGBA, GLX_DOUBLEBUFFER, GLX_RED_SIZE, 1,
+	    GLX_GREEN_SIZE, 1, GLX_BLUE_SIZE, 1, None };
+	static int deep_sb[] = { GLX_RGBA, GLX_RED_SIZE, 8,
+	    GLX_GREEN_SIZE, 8, GLX_BLUE_SIZE, 8, None };
+	XVisualInfo *vi;
+
+	*doublebuffered = 1;
+	if ((vi = glXChooseVisual(dpy, DefaultScreen(dpy), deep_db)) != NULL)
+		return vi;
+	if ((vi = glXChooseVisual(dpy, DefaultScreen(dpy), any_db)) != NULL)
+		return vi;
+	*doublebuffered = 0;
+	return glXChooseVisual(dpy, DefaultScreen(dpy), deep_sb);
+}
+
 /* The child's work: every phase on one transport. 0 when it could run. */
 static int
 run(void)
 {
-	static int attribs[] = { GLX_RGBA, GLX_DOUBLEBUFFER, GLX_RED_SIZE, 8,
-	    GLX_GREEN_SIZE, 8, GLX_BLUE_SIZE, 8, None };
 	Display *dpy;
 	XVisualInfo *vi;
 	Window small, big, app;
@@ -350,7 +381,7 @@ run(void)
 		printf("glbench: asked for %s, the library uses %s\n", res.transport, hgl_transport_name());
 		return -1;
 	}
-	if ((vi = glXChooseVisual(dpy, DefaultScreen(dpy), attribs)) == NULL) {
+	if ((vi = choose_visual(dpy, &res.doublebuffered)) == NULL) {
 		printf("glbench: %s: no visual\n", res.transport);
 		return -1;
 	}
@@ -361,6 +392,14 @@ run(void)
 	if ((ctx = glXCreateContext(dpy, vi, NULL, True)) == NULL || !glXMakeCurrent(dpy, small, ctx)) {
 		printf("glbench: %s: no GL context\n", res.transport);
 		return -1;
+	}
+	{
+		GLint bits = 0;
+
+		strncpy(res.renderer, (char *)glGetString(GL_RENDERER), sizeof res.renderer - 1);
+		glGetIntegerv(GL_RED_BITS, &bits);
+		res.visbits = bits;
+		res.visdepth = vi->depth;
 	}
 
 	disc_xy = malloc(sizeof(GLfloat) * 2 * (DISC + 2));
@@ -595,6 +634,8 @@ int
 main(int argc, char **argv)
 {
 	struct result r;
+	/* SGI's libGL (or another without the shim's transport) runs as itself */
+	const char *transport = &hgl_transport_name != NULL ? "hostcall" : "native";
 	int c, failed = 0;
 
 	res.frames = 60;
@@ -634,7 +675,7 @@ main(int argc, char **argv)
 	    || res.surfaces < 8 || res.surfaces > 100000
 	    || res.texsize < 16 || res.texsize > 4096 || res.readsize < 16 || res.readsize > 2048)
 		usage();
-	if (one("hostcall", &r) != 0) {
+	if (one(transport, &r) != 0) {
 		printf("glbench: did not run\n");
 		failed++;
 	} else if (r.failures) {
@@ -649,6 +690,8 @@ main(int argc, char **argv)
 		    1e3 * r.upload_s / r.uploads, 1e3 * r.readback_s / r.readbacks,
 		    1e3 * r.quake_s / r.qframes, r.quake_s > 0 ? r.qframes / r.quake_s : 0.0,
 		    1e3 * r.app_s / r.appframes, r.app_s > 0 ? r.appframes / r.app_s : 0.0);
+		printf("glbench: renderer %s, visual depth %d (%d bits a channel), %s-buffered\n",
+		    r.renderer, r.visdepth, r.visbits, r.doublebuffered ? "double" : "single");
 		printf("glbench: checksums: glcheck %#010lx, upload %#010lx, readback %#010lx, quake %#010lx\n",
 		    r.glcheck_sum, r.upload_sum, r.readback_sum, r.quake_sum);
 	}

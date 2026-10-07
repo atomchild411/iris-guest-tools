@@ -389,6 +389,13 @@ glXUseXFont(Font font, int first, int count, int listBase)
 		XFreeFontInfo(NULL, fs, 1);
 		return;
 	}
+	glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+	glPixelStorei(GL_UNPACK_LSB_FIRST, GL_FALSE);
+	glPixelStorei(GL_UNPACK_SWAP_BYTES, GL_FALSE);
 	for (i = 0; i < count; i++) {
 		char ch = (char)(first + i);
 
@@ -416,9 +423,10 @@ glXUseXFont(Font font, int first, int count, int listBase)
 		}
 		glNewList(listBase + i, GL_COMPILE);
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-		glBitmap(box_w, box_h, (GLfloat)-lbearing, (GLfloat)descent, (GLfloat)advance, 0, bits);
+		glBitmap(box_w, box_h, (GLfloat)-lbearing, (GLfloat)(box_h - cs->ascent), (GLfloat)advance, 0, bits);
 		glEndList();
 	}
+	glPopClientAttrib();
 	free(bits);
 	XFreeGC(dpy, gc);
 	XFreePixmap(dpy, pm);

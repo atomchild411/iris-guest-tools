@@ -1534,12 +1534,14 @@ t_glx(Display *dpy, Window win, GLXContext ctx)
 	/*
 	 * glXUseXFont: a letter of the server's own font, as a display list.
 	 * What the glyph looks like is the font's business, so the check is
-	 * that something was drawn inside its box and not everything.
+	 * that something was drawn inside its box and not everything -- and
+	 * that it stands on the baseline: 'A' has no descent, so its lowest
+	 * row is the raster position's.
 	 */
 	{
 		Font font = XLoadFont(dpy, "fixed");
 		GLuint base = glGenLists(4);
-		int lit = 0, x, y;
+		int lit = 0, low = -1, x, y;
 
 		glXUseXFont(font, 'A', 4, base);
 		check("glXUseXFont made the lists", glIsList(base) && glIsList(base + 3));
@@ -1550,10 +1552,14 @@ t_glx(Display *dpy, Window win, GLXContext ctx)
 		glFinish();
 		for (y = 0; y < 24; y++)
 			for (x = 0; x < 24; x++)
-				if (pixel(x, y) != 0)
+				if (pixel(x, y) != 0) {
 					lit++;
-		printf("=    the glyph lit %d pixels in a 24x24 corner\n", lit);
+					if (low < 0)
+						low = y;
+				}
+		printf("=    the glyph lit %d pixels in a 24x24 corner, lowest row %d\n", lit, low);
 		check("glXUseXFont drew a letter", lit > 0 && lit < 24 * 24);
+		check("glXUseXFont's letter stands on the baseline", low == 8);
 		glDeleteLists(base, 4);
 		XUnloadFont(dpy, font);
 	}

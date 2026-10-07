@@ -47,9 +47,8 @@ static GLuint font0_lists;
 /*
  * Font 0's lists: each glyph drawn by the X server into a pixmap, read back
  * and kept as a bitmap cut to the glyph's own ink box, so the origin sits
- * exactly on the baseline. (glXUseXFont in the OpenGL shim sizes every
- * bitmap to the font's largest box but places it by the glyph's own descent,
- * which draws most characters several pixels above the character position.)
+ * exactly on the baseline. (glXUseXFont in the OpenGL shim keeps the font's
+ * largest box for every glyph, blank rows included.)
  */
 static void
 build_font0(Display *d, XFontStruct *fs, GLuint base)

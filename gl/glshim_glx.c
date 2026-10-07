@@ -368,7 +368,7 @@ glXUseXFont(Font font, int first, int count, int listBase)
 	GC gc;
 	XImage *img;
 	unsigned char *bits;
-	int i, box_w, box_h, stride, x, y, lbearing, descent, advance;
+	int i, box_w, box_h, stride, x, y, lbearing, advance;
 
 	if (dpy == NULL || (fs = XQueryFont(dpy, font)) == NULL)
 		return;
@@ -404,7 +404,6 @@ glXUseXFont(Font font, int first, int count, int listBase)
 		    && first + i <= (int)fs->max_char_or_byte2)
 			cs = &fs->per_char[first + i - fs->min_char_or_byte2];
 		lbearing = cs->lbearing;
-		descent = cs->descent;
 		advance = cs->width;
 
 		XSetForeground(dpy, gc, 0);

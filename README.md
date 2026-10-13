@@ -35,6 +35,13 @@ You need:
   6.5.7's `gl.h` had the wrong way round). On an older IRIS `gltest` fails
   those checks and everything else works.
 
+  The libraries send self-contained command buffers without waiting for
+  them (`OP_BATCH_ASYNC`), so IRIX keeps running, and keeps its sound,
+  while the host draws. That needs an IRIS whose host GL runs on its own
+  thread (techomancer/iris#218); with an older one the library finds out
+  when it starts and waits for each buffer as before. `IRIS_GL_ASYNC=0`
+  turns it off.
+
   CHD disk images work in IRIS's default build. Tested so far on the IP28
   with IMPACT.
 - **IRIX 6.5** running in it, with a desktop you can log in to.
@@ -42,7 +49,13 @@ You need:
   host GL protocol it speaks and the IRIS that speaks it; the library checks
   that when a program starts and says so if they differ.
 
-Then, on the IRIX machine as root:
+Then, on the IRIX machine as root, either install the tardist with inst
+(or Software Manager):
+
+    inst -f iris-guest-tools-DATE-protoN.tardist
+    versions remove iristools    # ...and back to SGI's libraries
+
+or unpack the tarball and run its installer:
 
     gzcat iris-guest-tools-DATE-protoN.tgz | tar xf -
     cd iris-guest-tools-DATE-protoN
@@ -52,10 +65,14 @@ Then, on the IRIX machine as root:
 and, logged in to the desktop, `/usr/local/iris-tools/bin/n32/glcheck` should
 end with `glcheck: PASSED`. `install.sh` records SGI's setup the first time
 and only ever changes the links in `/var/arch`; `README.txt` in the release
-has the details. On a real SGI machine keep SGI's libraries: these draw
-nothing without IRIS.
+has the details. The tardist runs the same `install.sh` when it is
+installed and `install.sh -u` when it is removed. Reboot after either, for
+the X server to follow. On a real SGI machine keep SGI's libraries: these
+draw nothing without IRIS.
 
-`release/make-release.sh` makes a release from a checkout (see its header).
+`release/make-release.sh` makes a release from a checkout, and
+`release/make-tardist.sh` (on IRIX, with gendist) packages it as a tardist
+(see their headers).
 
 ## About
 

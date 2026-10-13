@@ -37,7 +37,9 @@ iris_for() {
 	case "$1" in
 	2) echo "techomancer/iris from commit 1a93808 (2026-09-30) on, built with --features hostgl, on macOS;"
 	   echo "                   glAccum and the packed pixel types (5_6_5, 2_3_3_REV, 8_8_8_8_REV) need"
-	   echo "                   IRIS from 2026-10-03 (181c8b1 and 6bc2082) on" ;;
+	   echo "                   IRIS from 2026-10-03 (181c8b1 and 6bc2082) on; buffers sent without"
+	   echo "                   waiting need host GL on its own thread (techomancer/iris#218), and"
+	   echo "                   are waited for on an IRIS without it" ;;
 	*) echo "an IRIS whose host GL speaks protocol $1" ;;
 	esac
 }

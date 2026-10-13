@@ -35,5 +35,15 @@ Check it, as a user logged in to the desktop:
 Each prints "ok"/"FAIL" per check. IRIS_GL_DEBUG=1 makes the library say
 what it is doing on stderr.
 
+The libraries send self-contained command buffers to the host without
+waiting for them, so IRIX keeps running (and its sound keeps playing)
+while the host draws. An IRIS whose host GL has no thread of its own
+answers that it cannot; the library then waits for each buffer, as
+earlier releases did. IRIS_GL_ASYNC=0 makes it wait anyway.
+
+From the tardist: inst runs ./install.sh after installing it (into
+/usr/local/iris-tools/release), and `versions remove iristools` runs
+./install.sh -u before removing it.
+
 Source, license (BSD 3-Clause) and how to build:
 https://github.com/atomchild411/iris-guest-tools

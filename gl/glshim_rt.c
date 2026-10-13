@@ -44,7 +44,7 @@ hgl_transport_name(void)
 static long long hgl_call3(long op, hgl_slot *slots, long long *v1_out, int noreply);
 
 /* IRIS_GL_STATS=1: how this process reached the host, printed at exit. */
-static unsigned long st_traps, st_need_pages;
+static unsigned long st_traps, st_need_pages, st_not_yet;
 
 /* ---- round-trip timing (IRIS_GL_STATS) ---- */
 
@@ -142,8 +142,8 @@ hgl_stats(void)
 	}
 	fprintf(stderr, "libGL: process %ld, transport %s\n", (long)getpid(), hgl_transport_name());
 	if (st_traps)
-		fprintf(stderr, "libGL: hostcall: %lu traps, %lu of them need-page retries\n",
-		    st_traps, st_need_pages);
+		fprintf(stderr, "libGL: hostcall: %lu traps, %lu of them need-page retries, "
+		    "%lu asked again while buffers ran\n", st_traps, st_need_pages, st_not_yet);
 	if (st_have_present) {
 		long long total = st_presented + st_replaced;
 
@@ -215,7 +215,7 @@ hgl_present(void)
 	/* First call in this process, or in a forked child, which asks the
 	 * host for a client id of its own. */
 	hgl_transport = HGL_TRANSPORT_NONE;
-	st_traps = st_need_pages = 0;
+	st_traps = st_need_pages = st_not_yet = 0;
 	memset(args, 0, sizeof args);
 	args[0] = HGL_GL_HELLO;
 	args[1] = HGL_PROTOCOL;
@@ -420,6 +420,17 @@ hgl_call3_raw(long op, hgl_slot *slots, long long *v1_out, int noreply)
 				*v1_out = (unsigned long)v1;
 			return (unsigned long)v0;
 		}
+		if (v0 == HGL_HOSTCALL_ENOTYET) {
+			/*
+			 * The host is still running buffers this process sent
+			 * without waiting. Let IRIX run -- its clock, its sound,
+			 * this program's other threads -- and ask again; waiting in
+			 * the host call would stop the whole machine instead.
+			 */
+			st_not_yet++;
+			sginap(0);
+			continue;
+		}
 		if (v0 != HGL_HOSTCALL_ENEEDPAGE)
 			return -1;
 		st_need_pages++;
@@ -507,9 +518,49 @@ hgl_batch_init(void)
 	hgl_end = hgl_base + HGL_BATCH_BYTES;
 }
 
-static unsigned long long
-flush(int noreply)
+/*
+ * Whether the host runs a buffer after answering (HGL_GL_BATCH_ASYNC), asked
+ * once per process: an IRIS without its GL thread answers EINVAL, and the
+ * buffer goes as HGL_GL_BATCH. IRIS_GL_ASYNC=0 turns it off.
+ */
+static int hgl_async = -1;
+
+static int
+async_ok(void)
 {
+	hgl_slot a[2];
+
+	if (hgl_async < 0) {
+		const char *e = getenv("IRIS_GL_ASYNC");
+
+		a[0].i = 0;
+		a[1].i = 0;
+		hgl_async = (e == NULL || strcmp(e, "0") != 0) &&
+		    hgl_call3_raw(HGL_GL_BATCH_ASYNC, a, 0, 0) == 0;
+		if (getenv("IRIS_GL_DEBUG") != NULL)
+			fprintf(stderr, "libGL: buffers %s\n", hgl_async ?
+			    "the host runs without being waited for" : "are waited for");
+	}
+	return hgl_async;
+}
+
+/*
+ * How a buffer goes: WAIT for the last call's value; UPLOAD when nothing
+ * comes back but the host reads this process's memory while it runs (a
+ * by-reference command ends the buffer, so the host must run it before the
+ * program goes on); SEND when the buffer holds nothing but itself -- every
+ * by-reference command is sent as UPLOAD the moment it is placed -- so the
+ * host may run it after answering.
+ */
+#define FLUSH_WAIT 0
+#define FLUSH_UPLOAD 1
+#define FLUSH_SEND 2
+
+static unsigned long long
+flush(int mode)
+{
+	int noreply = mode != FLUSH_WAIT;
+	long op;
 	hgl_slot a[2];
 	long len;
 	unsigned long long r;
@@ -536,34 +587,35 @@ flush(int noreply)
 	hgl_cur = hgl_base;
 	if (!hgl_present())
 		return 0;
+	op = mode == FLUSH_SEND && async_ok() ? HGL_GL_BATCH_ASYNC : HGL_GL_BATCH;
 	a[0].i = (long)(char *)hgl_base;
 	a[1].i = len;
-	r = (unsigned)hgl_call3(HGL_GL_BATCH, a, 0, noreply);
+	r = (unsigned)hgl_call3(op, a, 0, noreply);
 	return r;
 }
 
 unsigned long long
 hgl_flush(void)
 {
-	return flush(0);
+	return flush(FLUSH_WAIT);
 }
 
 void
 hgl_flush_nowait(void)
 {
-	flush(1);
+	flush(FLUSH_SEND);
 }
 
 void
 hgl_flush_upload(void)
 {
-	flush(1);
+	flush(FLUSH_UPLOAD);
 }
 
 void
 hgl_flush_send(void)
 {
-	flush(1);
+	flush(FLUSH_SEND);
 }
 
 /* ---- client arrays ---- */

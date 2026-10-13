@@ -4,7 +4,10 @@
  * A host call is a `syscall` with a number from 3000 to 3009, answered by IRIS
  * itself (iris-hostcall/src/lib.rs has the full contract). This header gives
  * the trap and the one piece of protocol a caller must implement: when IRIS
- * answers HOSTCALL_ENEEDPAGE, touch the page it names and call again.
+ * answers HOSTCALL_ENEEDPAGE, touch the page it names and call again. A
+ * caller that sends work IRIS answers before doing (host GL's
+ * HGL_GL_BATCH_ASYNC) must also take HOSTCALL_ENOTYET: yield, then make the
+ * same call again.
  *
  * The trap uses IRIX's indirect system call (see hostcall_trap.c), so seven
  * arguments at most, and they always travel in registers, whatever the
@@ -16,6 +19,7 @@
 #define HOSTCALL_GL        3000
 #define HOSTCALL_SELFTEST  3009
 #define HOSTCALL_ENEEDPAGE 0x3000
+#define HOSTCALL_ENOTYET   0x3001
 
 /*
  * One trap; args[0..6] are used. Returns a3 (0 = success); *v0 and *v1 receive the result

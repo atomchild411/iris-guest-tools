@@ -49,6 +49,7 @@
 /* IRIS's host GL service, and its need-page answer (iris-hostcall). */
 #define HGL_HOSTCALL_GL        3000
 #define HGL_HOSTCALL_ENEEDPAGE 0x3000
+#define HGL_HOSTCALL_ENOTYET   0x3001 /* buffers sent without waiting still run: call again */
 
 /* The protocol this library speaks; the host answers HELLO with its own. */
 #define HGL_PROTOCOL 2
@@ -69,6 +70,8 @@
 #define HGL_GL_GLX_STRING  0x1000D /* which, buffer, length */
 #define HGL_GL_GOODBYE     0x1000E /* this client's contexts and drawables go */
 #define HGL_GL_STATS       0x1000F /* -> frames presented, v1 = frames replaced */
+#define HGL_GL_BATCH_ASYNC 0x10010 /* buffer, length: answered before it runs; IRIS
+                                    * with its GL thread, else EINVAL (see flush) */
 
 typedef union {
 	long long i;

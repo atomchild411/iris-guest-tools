@@ -1007,6 +1007,12 @@ make_current(Display *dpy, GLXDrawable draw, GLXDrawable read, GLXContext ctx)
 	int w, h, p;
 
 	present_glxpixmap();
+	/* What the context going out drew where it is seen at once on the board
+	 * -- a front buffer, an overlay's single buffer -- is shown now, as a
+	 * glFlush would: Performer draws Mekton's HUD into its overlay window
+	 * and makes the scene's context current again without one. */
+	if (cur_ctx != NULL && cur_draw != None && (ctx != cur_ctx || draw != cur_draw))
+		present_front("glXMakeCurrent");
 	hgl_flush_nowait();
 	if (ctx == NULL || draw == None) {
 		a[0].i = 0;

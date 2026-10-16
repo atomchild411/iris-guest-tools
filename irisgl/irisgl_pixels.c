@@ -787,6 +787,11 @@ void
 backbuffer(Boolean b)
 {
 	TRACE("backbuffer");
+	if (hgl_iris.want_double && hgl_iris_fronts()) {
+		hgl_iris.back_off = !b;
+		hgl_iris_draw_buffer();
+		return;
+	}
 	if (b)
 		hgl_iris.front = 0;
 }

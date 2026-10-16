@@ -46,6 +46,9 @@ typedef XID GLXPbuffer;
 #include "glshim.h"
 #include "glshim_rt.h"
 
+void hgl_present_front(Display *dpy, GLXDrawable d);
+int hgl_front_buffers(void);
+
 /*
  * A drawable the host draws into: a window's X id, or a pbuffer's id from the
  * host. Its size goes with it, because a pbuffer has no window to ask.
@@ -293,10 +296,16 @@ present_front(const char *by)
 		fprintf(stderr, "libGL: %s: drawable 0x%lx, front buffer %s\n", by,
 		    (unsigned long)cur_draw, hgl_front_drawn(0) ? "drawn" : "untouched");
 	}
-	/* An overlay has only the one buffer: every flush shows it. */
+	/* An overlay has only the one buffer: every flush shows it. A host that
+	 * keeps the front buffer shows it as it is; without one, the window's one
+	 * buffer is shown by a swap. */
 	if (cur_dpy != NULL && cur_draw != None && glxpixmap_of(cur_draw) < 0 &&
-	    (hgl_front_drawn(1) || hgl_index_mode))
-		glXSwapBuffers(cur_dpy, cur_draw);
+	    (hgl_front_drawn(1) || hgl_index_mode)) {
+		if (hgl_fronts && !hgl_index_mode)
+			hgl_present_front(cur_dpy, cur_draw);
+		else
+			glXSwapBuffers(cur_dpy, cur_draw);
+	}
 }
 
 /*
@@ -1034,6 +1043,7 @@ make_current(Display *dpy, GLXDrawable draw, GLXDrawable read, GLXContext ctx)
 	 * GLX pixmaps and pbuffers keep the buffer their pixels are read back
 	 * from. */
 	if (pbuffer_of(draw) < 0 && glxpixmap_of(draw) < 0 && take_single_ctx(ctx)) {
+		hgl_client_single();
 		glDrawBuffer(GL_FRONT);
 		glReadBuffer(GL_FRONT);
 	}
@@ -1546,15 +1556,16 @@ unobscured(Display *dpy, Window w)
 	return vis[i].state == VisibilityUnobscured;
 }
 
+static void present_window(Display *dpy, GLXDrawable d, int front);
+
+/*
+ * A swap. A single-buffered context's drawing is its front buffer, which a
+ * swap leaves as it is: shown as it stands, when the host keeps it apart.
+ */
 void
 glXSwapBuffers(Display *dpy, GLXDrawable d)
 {
-	static int force_xputimage = -1, said_placed = -1, swap_debug = -1, swaps_said;
-	static GLXDrawable said_draw;
-	hgl_slot a[7];
-	long long presented, wait = 0;
-	int w, h, x = 0, y = 0, placed = 0, viewable = 0;
-	Window child;
+	static int swap_debug = -1, swaps_said;
 
 	/* What was drawn into the front buffer goes out with this frame. */
 	(void)hgl_front_drawn(1);
@@ -1568,6 +1579,45 @@ glXSwapBuffers(Display *dpy, GLXDrawable d)
 		swaps_said++;
 		fprintf(stderr, "libGL: glXSwapBuffers(0x%lx)\n", (unsigned long)d);
 	}
+	present_window(dpy, d, hgl_fronts && hgl_single_now());
+}
+
+/*
+ * For libirisgl, whose frontbuffer() draws into the front buffer when the
+ * host keeps one (and swaps, as before, when it does not).
+ */
+int
+hgl_front_buffers(void)
+{
+	return hgl_fronts;
+}
+
+/* Front-buffer drawing on the screen: the front buffer as it is, no swap. */
+void
+hgl_present_front(Display *dpy, GLXDrawable d)
+{
+	static int debug = -1, said;
+
+	if (debug < 0)
+		debug = getenv("IRIS_GL_DEBUG") != NULL;
+	if (debug && said < 12) {
+		said++;
+		fprintf(stderr, "libGL: front buffer of 0x%lx shown\n", (unsigned long)d);
+	}
+	present_window(dpy, d, 1);
+}
+
+/* A window's back buffer (front 0) or front buffer (front 1) to the screen. */
+static void
+present_window(Display *dpy, GLXDrawable d, int front)
+{
+	static int force_xputimage = -1, said_placed = -1;
+	static GLXDrawable said_draw;
+	hgl_slot a[7];
+	long long presented, wait = 0;
+	int w, h, x = 0, y = 0, placed = 0, viewable = 0;
+	Window child;
+
 	if (!window_size(dpy, d, &w, &h, &viewable))
 		return;
 	if (frame == NULL || w != frame_w || h != frame_h || d != frame_draw) {
@@ -1614,7 +1664,8 @@ glXSwapBuffers(Display *dpy, GLXDrawable d)
 		placed = XTranslateCoordinates(dpy, d, DefaultRootWindow(dpy), 0, 0, &x, &y, &child) != 0;
 	a[4].i = x;
 	a[5].i = y;
-	a[6].i = placed;
+	/* Bit 1: show the front buffer as it is (HGL_GL_FRONT_BUFFERS). */
+	a[6].i = placed | (front ? 2 : 0);
 	if ((d != said_draw || placed != said_placed) && getenv("IRIS_GL_DEBUG") != NULL)
 		fprintf(stderr, "libGL: window 0x%lx: %s\n", (unsigned long)d,
 		    placed ? "composited" : !viewable ? "not viewable: XPutImage" :

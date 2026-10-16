@@ -72,6 +72,8 @@
 #define HGL_GL_STATS       0x1000F /* -> frames presented, v1 = frames replaced */
 #define HGL_GL_BATCH_ASYNC 0x10010 /* buffer, length: answered before it runs; IRIS
                                     * with its GL thread, else EINVAL (see flush) */
+#define HGL_GL_FRONT_BUFFERS 0x10011 /* -> 1: windows keep a front buffer of their
+                                    * own; else EINVAL (see hgl_fronts) */
 
 typedef union {
 	long long i;
@@ -116,6 +118,12 @@ extern void hgl_wait(long long ns);
  * (glshim_glx.c). Called once, after the host knows this client.
  */
 extern void hgl_swap_setup(void);
+/* The host keeps each window's front buffer apart from its back (asked once,
+ * after HELLO): drawing into GL_FRONT reaches it, a swap copies the back into
+ * it, and front-buffer drawing is shown by presenting it (hgl_present_front).
+ * 0 on a host without it, and with IRIS_HOSTGL_NOFRONT set: then a window has
+ * the one buffer and front-buffer drawing is shown by a swap, as before. */
+extern int hgl_fronts;
 
 /* The transport this process uses, once hgl_present has answered 1. */
 #define HGL_TRANSPORT_NONE     0

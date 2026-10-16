@@ -1373,7 +1373,7 @@ static struct {
 	float colour[4];
 	long index, lstyle, pattern, font, lsrepeat;
 	GLboolean wm[4];
-	int front;
+	int front, back_off;
 	float linewidth;
 	long shade;
 } attrs[ATTRDEPTH];
@@ -1394,6 +1394,7 @@ pushattributes(void)
 		attrs[attrdepth].lsrepeat = getlsrepeat();
 		memcpy(attrs[attrdepth].wm, wm, sizeof wm);
 		attrs[attrdepth].front = hgl_iris.front;
+		attrs[attrdepth].back_off = hgl_iris.back_off;
 	}
 	attrdepth++;
 }
@@ -1417,6 +1418,8 @@ popattributes(void)
 		font((short)attrs[attrdepth].font);
 		memcpy(wm, attrs[attrdepth].wm, sizeof wm);
 		hgl_iris.front = attrs[attrdepth].front;
+		hgl_iris.back_off = attrs[attrdepth].back_off;
+		hgl_iris_draw_buffer();
 		hgl_apply_colormask();
 	}
 }

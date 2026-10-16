@@ -70,8 +70,11 @@ typedef struct {
 	Colormap index_cmap;
 	int want_rgb, want_double, want_zbuf, want_ms;
 	/* frontbuffer(TRUE) in a double-buffered program: what it draws has to
-	 * be seen without a swap. */
-	int front;
+	 * be seen without a swap. back_off: backbuffer(FALSE), so it goes only
+	 * there (or nowhere). Independent, as in IRIS GL, when the host keeps
+	 * the front buffer apart (hgl_iris_fronts); without one, front is all
+	 * there is and backbuffer(TRUE) clears it. */
+	int front, back_off;
 	/* Blending is on (blendfunction, linesmooth, pntsmooth), so pixels
 	 * must not be drawn twice. */
 	int blend;
@@ -98,6 +101,14 @@ extern HglIris hgl_iris;
  * program configure before or after winopen, so neither call can be the one
  * that commits. */
 void hgl_iris_ensure(void);
+
+/* The host keeps the front buffer apart from the back (libGL's
+ * hgl_front_buffers), and glDrawBuffer naming what frontbuffer() and
+ * backbuffer() say for a double-buffered window. */
+int hgl_iris_fronts(void);
+void hgl_iris_draw_buffer(void);
+/* libGL's hgl_present_front, when hgl_iris_fronts. */
+void hgl_iris_present_front(void);
 /* The projection calls -- perspective, window, ortho, ortho2 -- replace the
  * projection matrix in MVIEWING mode, where every other matrix call works on
  * the viewing matrix, and the current matrix in MSINGLE and MPROJECTION

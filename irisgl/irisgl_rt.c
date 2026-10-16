@@ -1190,6 +1190,8 @@ gconfig(void)
 	/* gconfig(3G): the colour is zero, the writemask all the planes, and
 	 * a double-buffered window draws into the back buffer only. */
 	hgl_iris.front = 0;
+	hgl_iris.back_off = 0;
+	hgl_iris_draw_buffer();
 	wmpack(0xffffffffUL);
 	if (hgl_iris.want_rgb)
 		hgl_set_colour(0.0f, 0.0f, 0.0f, 0.0f);
@@ -1224,7 +1226,12 @@ hgl_iris_present_if_single(void)
 	hgl_layers_present();
 	if (!hgl_iris.want_double || hgl_iris.front || hgl_layer_drawn) {
 		was = hgl_layer_suspend();
-		glXSwapBuffers(hgl_iris.gldpy, hgl_iris.win);
+		/* frontbuffer drawing, into a front buffer the host keeps: shown
+		 * as it is. A swap would show the back. */
+		if (hgl_iris.want_double && hgl_iris.front && hgl_iris_fronts())
+			hgl_iris_present_front();
+		else
+			glXSwapBuffers(hgl_iris.gldpy, hgl_iris.win);
 		hgl_layer_resume(was);
 		hgl_layer_drawn = 0;
 	}

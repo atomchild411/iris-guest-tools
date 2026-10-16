@@ -30,6 +30,7 @@
 
 /* 1: the host answered HELLO for process hgl_pid; -1: it is not there. */
 static int hgl_state;
+int hgl_fronts;
 static pid_t hgl_pid;
 static long hgl_client;
 static unsigned long hgl_serial;
@@ -241,8 +242,14 @@ hgl_present(void)
 	hgl_client = (long)v0;
 	hgl_pid = getpid();
 	hgl_state = 1;
-	/* After hgl_state, so the call inside it goes through. */
+	/* After hgl_state, so the calls inside them go through. */
 	hgl_swap_setup();
+	if (getenv("IRIS_HOSTGL_NOFRONT") == NULL) {
+		hgl_slot f[1];
+
+		f[0].i = 0;
+		hgl_fronts = hgl_call(HGL_GL_FRONT_BUFFERS, f) == 1;
+	}
 	if (getenv("IRIS_GL_DEBUG") != NULL)
 		fprintf(stderr, "libGL: process %ld uses host OpenGL through %s\n",
 		    (long)hgl_pid, hgl_transport_name());
@@ -289,8 +296,9 @@ struct hgl_client_state {
 	int client_unit;
 	struct hgl_array tex_arrays[HGL_TEX_UNITS];
 	/* glDrawBuffer names the front buffer now, and has named it since the
-	 * window was last presented (see hgl_front_drawn). */
-	int front_now, front_drawn;
+	 * window was last presented (see hgl_front_drawn). single: the context
+	 * is single-buffered, so the front buffer is all it has. */
+	int front_now, front_drawn, single;
 	/* A colour-index context's index state (see hgl_index_mode): the host
 	 * has none of it. index_ready: its initial state has been set. */
 	int index_mode, index_ready;
@@ -873,6 +881,9 @@ void hgl_index_geti(GLenum p, GLint *out) { double v; if (out && index_state(p, 
 void hgl_index_getb(GLenum p, GLboolean *out) { double v; if (out && index_state(p, &v)) *out = v != 0; }
 void hgl_index_getf(GLenum p, GLfloat *out) { double v; if (out && index_state(p, &v)) *out = (GLfloat)v; }
 void hgl_index_getd(GLenum p, GLdouble *out) { double v; if (out && index_state(p, &v)) *out = v; }
+
+void hgl_client_single(void) { cur_client->single = 1; }
+int hgl_single_now(void) { return cur_client->single; }
 
 int
 hgl_front_drawn(int clear)

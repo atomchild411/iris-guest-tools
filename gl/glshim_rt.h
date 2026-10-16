@@ -26,6 +26,9 @@ extern int hgl_client_unit_now(void);
  * window was last presented? hgl_front_drawn(1) answers and forgets. */
 extern void hgl_draw_buffer(GLenum mode);
 extern int hgl_front_drawn(int clear);
+/* The current context is single-buffered: its drawing is the front buffer. */
+extern void hgl_client_single(void);
+extern int hgl_single_now(void);
 extern void hgl_client_state(GLenum array, int on);
 extern void hgl_interleaved(GLenum format, GLsizei stride, const GLvoid *pointer);
 extern GLfloat *hgl_feedback_pointer;

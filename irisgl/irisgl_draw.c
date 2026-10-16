@@ -2,6 +2,7 @@
 #include "irisgl_shim.h"
 #include <gl/get.h>
 #include <GL/glu.h>
+#include <dlfcn.h>
 
 #include <math.h>
 #include <stdio.h>
@@ -2514,10 +2515,78 @@ fogvertex(long mode, const float *params)
 
 /* ---- buffers, and what a window reports ---- */
 
+/*
+ * libGL's front-buffer entry points, found by name in the libGL.so this
+ * process loaded: a reference bound when libirisgl was linked would hold
+ * that build's address, and an older libGL has neither (then the window has
+ * the one buffer, and frontbuffer swaps as before).
+ */
+static int (*gl_front_buffers)(void);
+static void (*gl_present_front)(Display *, GLXDrawable);
+
+int
+hgl_iris_fronts(void)
+{
+	static int looked;
+
+	if (!looked) {
+		void *gl = dlopen("libGL.so", RTLD_LAZY);
+
+		looked = 1;
+		if (gl != NULL) {
+			gl_front_buffers = (int (*)(void))dlsym(gl, "hgl_front_buffers");
+			gl_present_front = (void (*)(Display *, GLXDrawable))dlsym(gl, "hgl_present_front");
+		}
+	}
+	return gl_front_buffers != NULL && gl_present_front != NULL && gl_front_buffers();
+}
+
+void
+hgl_iris_present_front(void)
+{
+	if (hgl_iris_fronts())
+		gl_present_front(hgl_iris.gldpy, hgl_iris.win);
+}
+
+void
+hgl_iris_draw_buffer(void)
+{
+	GLenum mode;
+
+	if (!hgl_iris.opened || !hgl_iris.ctx || !hgl_iris.want_double || !hgl_iris_fronts())
+		return;
+	if (hgl_iris.front)
+		mode = hgl_iris.back_off ? GL_FRONT : GL_FRONT_AND_BACK;
+	else
+		mode = hgl_iris.back_off ? GL_NONE : GL_BACK;
+	glDrawBuffer(mode);
+}
+
+/*
+ * frontbuffer(TRUE): draw into the front buffer -- as well as the back, unless
+ * backbuffer(FALSE) -- so it is seen at once (gflush shows it). A program
+ * draws a pressed button there and leaves the rest of the window as it is
+ * on the screen, whatever its back buffer holds (mview clears that after
+ * every frame). Without a front buffer of its own on the host, the window's
+ * one buffer is shown by a swap instead.
+ */
 void
 frontbuffer(Boolean b)
 {
+	int was = hgl_iris.front;
+
 	hgl_iris.front = b != 0;
+	if (hgl_iris.want_double && hgl_iris_fronts()) {
+		hgl_iris_draw_buffer();
+		/* What it drew there is on the screen at once on the board (SGI's
+		 * library flushes after every primitive), and a program stops
+		 * drawing there without a gflush (mview): shown now. */
+		if (was && !hgl_iris.front && hgl_iris.opened && hgl_iris.ctx) {
+			glFlush();
+			hgl_iris_present_front();
+		}
+		return;
+	}
 	if (b && hgl_iris.opened && hgl_iris.ctx)
 		glXSwapBuffers(hgl_iris.gldpy, hgl_iris.win);
 }

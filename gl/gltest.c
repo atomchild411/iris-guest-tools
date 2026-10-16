@@ -19,6 +19,7 @@
 #include <string.h>
 #include <math.h>
 #include <dlfcn.h>
+#include <unistd.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <GL/gl.h>
@@ -51,6 +52,33 @@ pixel(int x, int y)
 
 	glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, p);
 	return ((unsigned long)p[0] << 16) | (p[1] << 8) | p[2];
+}
+
+/*
+ * Wait until the window is on the screen at the size the window manager
+ * gives it. 4Dwm widens a window narrower than its title bar (64 to 100
+ * pixels) a moment after it is mapped; drawing before that, the drawable
+ * follows the new size at the next glXMakeCurrent and what was drawn is gone
+ * ("the window kept its pixels" failed now and then).
+ */
+static void
+wait_settled(Display *dpy, Window w)
+{
+	XWindowAttributes a;
+	int last_w = -1, last_h = -1, same = 0, tries;
+
+	for (tries = 0; tries < 50 && same < 3; tries++) {
+		XSync(dpy, False);
+		if (XGetWindowAttributes(dpy, w, &a) && a.map_state == IsViewable &&
+		    a.width == last_w && a.height == last_h) {
+			same++;
+		} else {
+			same = 0;
+			last_w = a.width;
+			last_h = a.height;
+		}
+		usleep(100000);
+	}
 }
 
 static void
@@ -2084,7 +2112,7 @@ main(void)
 	win = XCreateWindow(dpy, RootWindow(dpy, vi->screen), 0, 0, W, H, 0, vi->depth, InputOutput,
 	    vi->visual, CWColormap | CWBorderPixel, &swa);
 	XMapWindow(dpy, win);
-	XSync(dpy, False);
+	wait_settled(dpy, win);
 	ctx = glXCreateContext(dpy, vi, NULL, True);
 	if (ctx == NULL || !glXMakeCurrent(dpy, win, ctx)) {
 		printf("FAIL no context\n");

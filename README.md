@@ -18,9 +18,9 @@ is not available and draw nothing.
 You need:
 
 - **IRIS with host GL.** It is not in IRIS's release builds yet: build IRIS
-  on a Mac (host GL uses Apple's OpenGL, so macOS only for now), from commit
-  `1a93808` (2026-09-30) or later, with `hostgl` (it brings `hostcall` with
-  it) and whatever the machine you emulate wants:
+  on a Mac, from commit `1a93808` (2026-09-30) or later, or on Linux (EGL
+  and Mesa), from `6f9887b` (2026-10-13) or later, with `hostgl` (it brings
+  `hostcall` with it) and whatever the machine you emulate wants:
 
   | IRIX machine | `cargo build --release --features ...` | notes |
   |---|---|---|
@@ -41,6 +41,13 @@ You need:
   thread (techomancer/iris#218); with an older one the library finds out
   when it starts and waits for each buffer as before. `IRIS_GL_ASYNC=0`
   turns it off.
+
+  Windows have a front buffer of their own where IRIS keeps one
+  (techomancer/iris#232): drawing into `GL_FRONT`, `GL_FRONT_AND_BACK`, IRIS
+  GL's `frontbuffer()`, or an overlay window is shown as it is, without a
+  swap putting the back buffer up (mview's control panel, Mekton's HUD,
+  flight's help screen). On an older IRIS front-buffer drawing is shown by a
+  swap, as before. `IRIS_HOSTGL_NOFRONT=1` keeps the old way.
 
   CHD disk images work in IRIS's default build. Tested so far on the IP28
   with IMPACT.

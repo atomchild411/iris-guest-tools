@@ -68,6 +68,16 @@ extern int hgl_lmc_begin(GLenum mode);
 extern void hgl_lmc_vertex(void);
 extern int hgl_lmc_end(void);
 extern void hgl_lmc_after_end(void);
+/* swaptmesh for SGI's IRIS GL (glshim_rt.c): the generated encoders' hooks. */
+#define HGL_TM_VERTEX   0
+#define HGL_TM_NORMAL   1
+#define HGL_TM_COLOUR   2
+#define HGL_TM_TEXCOORD 3
+extern int hgl_tm, hgl_tm_internal;
+extern void hgl_tm_set(int on);
+extern void hgl_tm_begin(void);
+extern void hgl_tm_attr(int kind, double a, double b, double c, double d);
+extern void hgl_tm_swap(void);
 extern void hgl_index_mask(GLuint mask);
 extern void hgl_index_geti(GLenum pname, GLint *params);
 extern void hgl_index_getb(GLenum pname, GLboolean *params);

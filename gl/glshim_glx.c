@@ -2624,7 +2624,8 @@ int glXGetFBConfigFltAttribSGIX(Display *d, GLXFBConfigSGIX c, int a, float *v) 
  * SGI's private GL_SGIX_igloo_interface, which SGI's IRIS GL (IGLOO) looks up
  * in libGL.so to have SGI's library do the IRIS GL things OpenGL does not.
  * 0x81A3 (its first word: on or off) is lmcolor(LMC_COLOR), done here (see
- * hgl_lmc in glshim_rt.c); the rest are taken and left to IGLOO's own way
+ * hgl_lmc in glshim_rt.c); 0x81A4 (on or off) a triangle mesh and 0x81A0 its
+ * swaptmesh (hgl_tm); the rest are taken and left to IGLOO's own way
  * (IRIS_GL_IGLOO_LOG=1 lists them).
  */
 void
@@ -2639,4 +2640,8 @@ glIglooInterfaceSGIX(GLenum pname, const GLvoid *params)
 		fprintf(stderr, "libGL: glIglooInterfaceSGIX(%#x, %#x)\n", (unsigned)pname, u != NULL ? u[0] : 0);
 	if (pname == 0x81A3 && u != NULL)
 		hgl_lmc_set(u[0] != 0);
+	else if (pname == 0x81A4 && u != NULL)
+		hgl_tm_set(u[0] != 0);
+	else if (pname == 0x81A0)
+		hgl_tm_swap();
 }

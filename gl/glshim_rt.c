@@ -960,6 +960,102 @@ hgl_lmc_after_end(void)
 }
 
 /*
+ * swaptmesh for SGI's IRIS GL (IGLOO). An IRIS GL triangle mesh keeps two
+ * vertices, and each new one makes a triangle with them; swaptmesh swaps the
+ * two, so the next triangle shares the older one's edge instead of the
+ * newer's. IGLOO draws a mesh as a GL_TRIANGLE_STRIP, says when it is in one
+ * (glIglooInterfaceSGIX(0x81A4), its first word on or off) and asks SGI's
+ * libGL for each swap (0x81A0). OpenGL has no swap: the older vertex is sent
+ * again, which makes one empty triangle and leaves the strip's last two the
+ * other way round. Without it, UroMan's body and organs -- meshes swapped
+ * every few vertices -- came apart into shards.
+ *
+ * So inside a mesh each vertex is kept with the normal, colour and texture
+ * coordinate current when it was sent; one of those not yet sent in this mesh
+ * is not sent again (the program's own stands). After the older vertex, the
+ * program's current ones are sent back.
+ */
+int hgl_tm;             /* in an IRIS GL triangle mesh */
+int hgl_tm_internal;    /* the calls below, not the program's */
+
+struct tm_vertex {
+	GLfloat v[4], n[3], c[4], t[4];
+	int has;        /* 1 << HGL_TM_NORMAL ...: which were sent in the mesh */
+};
+static struct tm_vertex tm_cur, tm_reg[2];   /* tm_reg[1] the newer */
+static int tm_count;
+
+void
+hgl_tm_set(int on)
+{
+	hgl_tm = on != 0;
+	tm_count = 0;
+	tm_cur.has = 0;
+}
+
+void
+hgl_tm_begin(void)
+{
+	tm_count = 0;
+}
+
+void
+hgl_tm_attr(int kind, double a, double b, double c, double d)
+{
+	GLfloat *p;
+
+	switch (kind) {
+	case HGL_TM_VERTEX: p = tm_cur.v; break;
+	case HGL_TM_NORMAL: p = tm_cur.n; break;
+	case HGL_TM_COLOUR: p = tm_cur.c; break;
+	default: p = tm_cur.t; break;
+	}
+	p[0] = (GLfloat)a;
+	p[1] = (GLfloat)b;
+	p[2] = (GLfloat)c;
+	if (kind != HGL_TM_NORMAL)
+		p[3] = (GLfloat)d;
+	if (kind != HGL_TM_VERTEX) {
+		tm_cur.has |= 1 << kind;
+		return;
+	}
+	tm_reg[0] = tm_reg[1];
+	tm_reg[1] = tm_cur;
+	tm_count++;
+}
+
+static void
+tm_send(const struct tm_vertex *t, int vertex)
+{
+	if (t->has & 1 << HGL_TM_NORMAL)
+		glNormal3fv(t->n);
+	if (t->has & 1 << HGL_TM_COLOUR)
+		glColor4fv(t->c);
+	if (t->has & 1 << HGL_TM_TEXCOORD)
+		glTexCoord4fv(t->t);
+	if (vertex)
+		glVertex4fv(t->v);
+}
+
+void
+hgl_tm_swap(void)
+{
+	struct tm_vertex older;
+	int colour_last = hgl_lmc_colour_last;
+
+	if (!hgl_tm || tm_count < 2)
+		return;
+	older = tm_reg[0];
+	hgl_tm_internal = 1;
+	tm_send(&older, 1);
+	tm_send(&tm_cur, 0);
+	hgl_tm_internal = 0;
+	hgl_lmc_colour_last = colour_last;
+	tm_reg[0] = tm_reg[1];
+	tm_reg[1] = older;
+}
+
+/*
  * glDrawPixels(GL_COLOR_INDEX) in an index context: the host's GL is RGBA, so
  * it turned the indices into colours through its pixel maps -- all 0 -- and
  * the image drew as index 0. Mekton's cockpit, a full-screen 16-bit index

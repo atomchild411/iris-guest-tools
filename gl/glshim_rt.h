@@ -57,6 +57,16 @@ extern int hgl_index_bits;
 extern void hgl_client_index(int on);
 extern void hgl_index(double v);
 extern void hgl_clear_index(GLfloat c);
+extern void hgl_read_index(GLint x, GLint y, GLsizei w, GLsizei h, GLenum type, GLvoid *pixels);
+/* lmcolor(LMC_COLOR) for SGI's IRIS GL (glshim_rt.c): the generated encoders'
+ * hooks. */
+extern int hgl_lmc, hgl_lmc_colour_last, hgl_lmc_pending, hgl_lmc_off;
+extern void hgl_lmc_set(int on);
+extern void hgl_lmc_lighting(GLenum cap, int on);
+extern int hgl_lmc_begin(GLenum mode);
+extern void hgl_lmc_vertex(void);
+extern int hgl_lmc_end(void);
+extern void hgl_lmc_after_end(void);
 extern void hgl_index_mask(GLuint mask);
 extern void hgl_index_geti(GLenum pname, GLint *params);
 extern void hgl_index_getb(GLenum pname, GLboolean *params);

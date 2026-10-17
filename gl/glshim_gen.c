@@ -80,6 +80,7 @@ void glBegin(GLenum mode)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc && hgl_lmc_begin(mode)) return;
 	HGL_CMD(_c, HGL_OP_glBegin, HGL_ROUND8(8 + _tail));
 	HGL_PUT_I(_c, 4, mode);
 }
@@ -285,6 +286,7 @@ void glColor3b(GLbyte red, GLbyte green, GLbyte blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3b, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -301,6 +303,7 @@ void glColor3bv(const GLbyte *v)
 	_b0 = _n0 * 1;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3bv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -320,6 +323,7 @@ void glColor3d(GLdouble red, GLdouble green, GLdouble blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3d, HGL_ROUND8(32 + _tail));
 	HGL_PUT_D(_c, 8, red);
 	HGL_PUT_D(_c, 16, green);
@@ -336,6 +340,7 @@ void glColor3dv(const GLdouble *v)
 	_b0 = _n0 * 8;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3dv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -355,6 +360,7 @@ void glColor3f(GLfloat red, GLfloat green, GLfloat blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3f, HGL_ROUND8(16 + _tail));
 	HGL_PUT_F(_c, 4, red);
 	HGL_PUT_F(_c, 8, green);
@@ -371,6 +377,7 @@ void glColor3fv(const GLfloat *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3fv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -390,6 +397,7 @@ void glColor3i(GLint red, GLint green, GLint blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3i, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -406,6 +414,7 @@ void glColor3iv(const GLint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3iv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -425,6 +434,7 @@ void glColor3s(GLshort red, GLshort green, GLshort blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3s, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -441,6 +451,7 @@ void glColor3sv(const GLshort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3sv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -460,6 +471,7 @@ void glColor3ub(GLubyte red, GLubyte green, GLubyte blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3ub, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -476,6 +488,7 @@ void glColor3ubv(const GLubyte *v)
 	_b0 = _n0 * 1;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3ubv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -495,6 +508,7 @@ void glColor3ui(GLuint red, GLuint green, GLuint blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3ui, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -511,6 +525,7 @@ void glColor3uiv(const GLuint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3uiv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -530,6 +545,7 @@ void glColor3us(GLushort red, GLushort green, GLushort blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3us, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -546,6 +562,7 @@ void glColor3usv(const GLushort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor3usv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -565,6 +582,7 @@ void glColor4b(GLbyte red, GLbyte green, GLbyte blue, GLbyte alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4b, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -582,6 +600,7 @@ void glColor4bv(const GLbyte *v)
 	_b0 = _n0 * 1;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4bv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -601,6 +620,7 @@ void glColor4d(GLdouble red, GLdouble green, GLdouble blue, GLdouble alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4d, HGL_ROUND8(40 + _tail));
 	HGL_PUT_D(_c, 8, red);
 	HGL_PUT_D(_c, 16, green);
@@ -618,6 +638,7 @@ void glColor4dv(const GLdouble *v)
 	_b0 = _n0 * 8;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4dv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -637,6 +658,7 @@ void glColor4f(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4f, HGL_ROUND8(24 + _tail));
 	HGL_PUT_F(_c, 4, red);
 	HGL_PUT_F(_c, 8, green);
@@ -654,6 +676,7 @@ void glColor4fv(const GLfloat *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4fv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -673,6 +696,7 @@ void glColor4i(GLint red, GLint green, GLint blue, GLint alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4i, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -690,6 +714,7 @@ void glColor4iv(const GLint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4iv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -709,6 +734,7 @@ void glColor4s(GLshort red, GLshort green, GLshort blue, GLshort alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4s, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -726,6 +752,7 @@ void glColor4sv(const GLshort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4sv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -745,6 +772,7 @@ void glColor4ub(GLubyte red, GLubyte green, GLubyte blue, GLubyte alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4ub, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -762,6 +790,7 @@ void glColor4ubv(const GLubyte *v)
 	_b0 = _n0 * 1;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4ubv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -781,6 +810,7 @@ void glColor4ui(GLuint red, GLuint green, GLuint blue, GLuint alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4ui, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -798,6 +828,7 @@ void glColor4uiv(const GLuint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4uiv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -817,6 +848,7 @@ void glColor4us(GLushort red, GLushort green, GLushort blue, GLushort alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4us, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -834,6 +866,7 @@ void glColor4usv(const GLushort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 1;
 	HGL_CMD(_c, HGL_OP_glColor4usv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -1711,6 +1744,7 @@ void glDisable(GLenum cap)
 	unsigned char *_c;
 	unsigned _tail = 0;
 	if (hgl_index_mode && cap == GL_LOGIC_OP) cap = GL_COLOR_LOGIC_OP;
+	hgl_lmc_lighting(cap, 0);
 	HGL_CMD(_c, HGL_OP_glDisable, HGL_ROUND8(8 + _tail));
 	HGL_PUT_I(_c, 4, cap);
 }
@@ -1858,6 +1892,7 @@ void glEnable(GLenum cap)
 	unsigned char *_c;
 	unsigned _tail = 0;
 	if (hgl_index_mode && cap == GL_LOGIC_OP) cap = GL_COLOR_LOGIC_OP;
+	hgl_lmc_lighting(cap, 1);
 	HGL_CMD(_c, HGL_OP_glEnable, HGL_ROUND8(8 + _tail));
 	HGL_PUT_I(_c, 4, cap);
 }
@@ -1875,7 +1910,9 @@ void glEnd(void)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending && hgl_lmc_end()) return;
 	HGL_CMD(_c, HGL_OP_glEnd, HGL_ROUND8(8 + _tail));
+	if (hgl_lmc_off) hgl_lmc_after_end();
 }
 
 void glEndList(void)
@@ -2892,6 +2929,7 @@ void glHint(GLenum target, GLenum mode)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (target == 0x812E) return;
 	HGL_CMD(_c, HGL_OP_glHint, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, target);
 	HGL_PUT_I(_c, 8, mode);
@@ -3853,6 +3891,7 @@ void glNormal3b(GLbyte nx, GLbyte ny, GLbyte nz)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 0;
 	HGL_CMD(_c, HGL_OP_glNormal3b, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, nx);
 	HGL_PUT_I(_c, 8, ny);
@@ -3869,6 +3908,7 @@ void glNormal3bv(const GLbyte *v)
 	_b0 = _n0 * 1;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 0;
 	HGL_CMD(_c, HGL_OP_glNormal3bv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -3888,6 +3928,7 @@ void glNormal3d(GLdouble nx, GLdouble ny, GLdouble nz)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 0;
 	HGL_CMD(_c, HGL_OP_glNormal3d, HGL_ROUND8(32 + _tail));
 	HGL_PUT_D(_c, 8, nx);
 	HGL_PUT_D(_c, 16, ny);
@@ -3904,6 +3945,7 @@ void glNormal3dv(const GLdouble *v)
 	_b0 = _n0 * 8;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 0;
 	HGL_CMD(_c, HGL_OP_glNormal3dv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -3923,6 +3965,7 @@ void glNormal3f(GLfloat nx, GLfloat ny, GLfloat nz)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 0;
 	HGL_CMD(_c, HGL_OP_glNormal3f, HGL_ROUND8(16 + _tail));
 	HGL_PUT_F(_c, 4, nx);
 	HGL_PUT_F(_c, 8, ny);
@@ -3939,6 +3982,7 @@ void glNormal3fv(const GLfloat *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 0;
 	HGL_CMD(_c, HGL_OP_glNormal3fv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -3958,6 +4002,7 @@ void glNormal3i(GLint nx, GLint ny, GLint nz)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 0;
 	HGL_CMD(_c, HGL_OP_glNormal3i, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, nx);
 	HGL_PUT_I(_c, 8, ny);
@@ -3974,6 +4019,7 @@ void glNormal3iv(const GLint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 0;
 	HGL_CMD(_c, HGL_OP_glNormal3iv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -3993,6 +4039,7 @@ void glNormal3s(GLshort nx, GLshort ny, GLshort nz)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	hgl_lmc_colour_last = 0;
 	HGL_CMD(_c, HGL_OP_glNormal3s, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, nx);
 	HGL_PUT_I(_c, 8, ny);
@@ -4009,6 +4056,7 @@ void glNormal3sv(const GLshort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	hgl_lmc_colour_last = 0;
 	HGL_CMD(_c, HGL_OP_glNormal3sv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -4878,6 +4926,7 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_index_mode && format == GL_COLOR_INDEX) { hgl_read_index(x, y, width, height, type, pixels); return; }
 	HGL_CMD(_c, HGL_OP_glReadPixels, HGL_ROUND8(40 + _tail));
 	HGL_PUT_I(_c, 4, x);
 	HGL_PUT_I(_c, 8, y);
@@ -6545,6 +6594,7 @@ void glVertex2d(GLdouble x, GLdouble y)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex2d, HGL_ROUND8(24 + _tail));
 	HGL_PUT_D(_c, 8, x);
 	HGL_PUT_D(_c, 16, y);
@@ -6560,6 +6610,7 @@ void glVertex2dv(const GLdouble *v)
 	_b0 = _n0 * 8;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex2dv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -6579,6 +6630,7 @@ void glVertex2f(GLfloat x, GLfloat y)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex2f, HGL_ROUND8(16 + _tail));
 	HGL_PUT_F(_c, 4, x);
 	HGL_PUT_F(_c, 8, y);
@@ -6594,6 +6646,7 @@ void glVertex2fv(const GLfloat *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex2fv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -6613,6 +6666,7 @@ void glVertex2i(GLint x, GLint y)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex2i, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, x);
 	HGL_PUT_I(_c, 8, y);
@@ -6628,6 +6682,7 @@ void glVertex2iv(const GLint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex2iv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -6647,6 +6702,7 @@ void glVertex2s(GLshort x, GLshort y)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex2s, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, x);
 	HGL_PUT_I(_c, 8, y);
@@ -6662,6 +6718,7 @@ void glVertex2sv(const GLshort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex2sv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -6681,6 +6738,7 @@ void glVertex3d(GLdouble x, GLdouble y, GLdouble z)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex3d, HGL_ROUND8(32 + _tail));
 	HGL_PUT_D(_c, 8, x);
 	HGL_PUT_D(_c, 16, y);
@@ -6697,6 +6755,7 @@ void glVertex3dv(const GLdouble *v)
 	_b0 = _n0 * 8;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex3dv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -6716,6 +6775,7 @@ void glVertex3f(GLfloat x, GLfloat y, GLfloat z)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex3f, HGL_ROUND8(16 + _tail));
 	HGL_PUT_F(_c, 4, x);
 	HGL_PUT_F(_c, 8, y);
@@ -6732,6 +6792,7 @@ void glVertex3fv(const GLfloat *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex3fv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -6751,6 +6812,7 @@ void glVertex3i(GLint x, GLint y, GLint z)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex3i, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, x);
 	HGL_PUT_I(_c, 8, y);
@@ -6767,6 +6829,7 @@ void glVertex3iv(const GLint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex3iv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -6786,6 +6849,7 @@ void glVertex3s(GLshort x, GLshort y, GLshort z)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex3s, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, x);
 	HGL_PUT_I(_c, 8, y);
@@ -6802,6 +6866,7 @@ void glVertex3sv(const GLshort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex3sv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -6821,6 +6886,7 @@ void glVertex4d(GLdouble x, GLdouble y, GLdouble z, GLdouble w)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex4d, HGL_ROUND8(40 + _tail));
 	HGL_PUT_D(_c, 8, x);
 	HGL_PUT_D(_c, 16, y);
@@ -6838,6 +6904,7 @@ void glVertex4dv(const GLdouble *v)
 	_b0 = _n0 * 8;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex4dv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -6857,6 +6924,7 @@ void glVertex4f(GLfloat x, GLfloat y, GLfloat z, GLfloat w)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex4f, HGL_ROUND8(24 + _tail));
 	HGL_PUT_F(_c, 4, x);
 	HGL_PUT_F(_c, 8, y);
@@ -6874,6 +6942,7 @@ void glVertex4fv(const GLfloat *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex4fv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -6893,6 +6962,7 @@ void glVertex4i(GLint x, GLint y, GLint z, GLint w)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex4i, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, x);
 	HGL_PUT_I(_c, 8, y);
@@ -6910,6 +6980,7 @@ void glVertex4iv(const GLint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex4iv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -6929,6 +7000,7 @@ void glVertex4s(GLshort x, GLshort y, GLshort z, GLshort w)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex4s, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, x);
 	HGL_PUT_I(_c, 8, y);
@@ -6946,6 +7018,7 @@ void glVertex4sv(const GLshort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
+	if (hgl_lmc_pending) hgl_lmc_vertex();
 	HGL_CMD(_c, HGL_OP_glVertex4sv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {

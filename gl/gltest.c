@@ -1481,6 +1481,11 @@ t_glx(Display *dpy, Window win, GLXContext ctx)
 	XVisualInfo *vi;
 	unsigned int count, later, value;
 	int n = 0, attrib = 0;
+	/* An RGBA config a pbuffer can be made from. (An empty list is every
+	 * config, in the server's order: on IMPACT an 8-bit colour-index one
+	 * comes first, as with SGI's own library.) */
+	static int want[] = { GLX_RENDER_TYPE_SGIX, GLX_RGBA_BIT_SGIX,
+	    GLX_DRAWABLE_TYPE_SGIX, GLX_WINDOW_BIT_SGIX | GLX_PBUFFER_BIT_SGIX, None };
 
 	if (e == NULL)
 		e = "";
@@ -1489,7 +1494,7 @@ t_glx(Display *dpy, Window win, GLXContext ctx)
 	check("GLX extensions include SGI_make_current_read", strstr(e, "GLX_SGI_make_current_read") != NULL);
 	check("GLX extensions leave out what we cannot do", strstr(e, "hyperpipe") == NULL);
 
-	cfgs = glXChooseFBConfigSGIX(dpy, DefaultScreen(dpy), &attrib, &n);
+	cfgs = glXChooseFBConfigSGIX(dpy, DefaultScreen(dpy), want, &n);
 	check("glXChooseFBConfigSGIX", cfgs != NULL && n > 0);
 	if (cfgs == NULL || n == 0)
 		return;

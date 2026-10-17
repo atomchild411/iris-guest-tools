@@ -332,6 +332,9 @@ struct hgl_client_state {
 	int index_mode, index_ready;
 	long cur_index, clear_index;
 	unsigned long index_mask;
+	/* SGI's IRIS GL's lmcolor(LMC_COLOR) is on (see hgl_lmc), and
+	 * GL_LIGHTING as the program set it. */
+	int lmc, lighting;
 };
 
 static struct hgl_client_state clients[HGL_CLIENTS];
@@ -378,6 +381,8 @@ hgl_client_select(void *ctx)
 {
 	client_pick(ctx);
 	hgl_index_mode = cur_client->index_mode;
+	hgl_lmc = cur_client->lmc;
+	hgl_lmc_pending = 0;
 }
 
 void
@@ -390,6 +395,7 @@ hgl_client_forget(void *ctx)
 			if (cur_client == &clients[i]) {
 				cur_client = &untracked;
 				hgl_index_mode = 0;
+				hgl_lmc = 0;
 			}
 			clients[i].ctx = NULL;
 		}
@@ -876,6 +882,132 @@ hgl_clear_index(GLfloat c)
 
 	cur_client->clear_index = i;
 	glClearColor((GLfloat)(i & 0xff) / 255.0f, (GLfloat)(i >> 8 & 0x0f) / 255.0f, 0.0f, 1.0f);
+}
+
+/*
+ * lmcolor(LMC_COLOR), for SGI's IRIS GL (IGLOO), which asks SGI's libGL for it
+ * through its private GL_SGIX_igloo_interface (glIglooInterfaceSGIX(0x81A3),
+ * glshim_glx.c): a vertex is lit only when a normal was the last of a colour
+ * and a normal sent before it; when the colour was, it is drawn in the colour
+ * (lmcolor(3G)). Without it, a shape a program draws with a colour and no
+ * normal in a lit scene -- UroMan's translucent cutting plane -- came out in
+ * the material's colour. OpenGL lights a primitive whole: while it is on and
+ * the program has lighting on, glBegin is held until the first vertex, and
+ * if a colour came last, lighting goes off for that primitive and back on
+ * at glEnd. (The same rule as the IRIS GL shim's, irisgl_draw.c.)
+ */
+int hgl_lmc;            /* on, for the current context */
+int hgl_lmc_colour_last;
+int hgl_lmc_pending;    /* a held glBegin: its mode + 1 */
+int hgl_lmc_off;        /* lighting went off for this primitive */
+int hgl_lmc_internal;   /* the calls below, not the program's */
+
+void
+hgl_lmc_set(int on)
+{
+	cur_client->lmc = on != 0;
+	hgl_lmc = cur_client->lmc;
+}
+
+void
+hgl_lmc_lighting(GLenum cap, int on)
+{
+	if (cap == GL_LIGHTING && !hgl_lmc_internal)
+		cur_client->lighting = on;
+}
+
+int
+hgl_lmc_begin(GLenum mode)
+{
+	if (hgl_lmc_internal || !cur_client->lighting)
+		return 0;
+	hgl_lmc_pending = (int)mode + 1;
+	return 1;
+}
+
+void
+hgl_lmc_vertex(void)
+{
+	GLenum mode = (GLenum)(hgl_lmc_pending - 1);
+
+	hgl_lmc_pending = 0;
+	hgl_lmc_internal = 1;
+	if (hgl_lmc_colour_last) {
+		glDisable(GL_LIGHTING);
+		hgl_lmc_off = 1;
+	}
+	glBegin(mode);
+	hgl_lmc_internal = 0;
+}
+
+/* glEnd: 1 when its glBegin never went (no vertex), so neither does it. */
+int
+hgl_lmc_end(void)
+{
+	if (hgl_lmc_pending == 0)
+		return 0;
+	hgl_lmc_pending = 0;
+	return 1;
+}
+
+void
+hgl_lmc_after_end(void)
+{
+	hgl_lmc_off = 0;
+	hgl_lmc_internal = 1;
+	glEnable(GL_LIGHTING);
+	hgl_lmc_internal = 0;
+}
+
+/*
+ * glReadPixels(GL_COLOR_INDEX) in an index context: the host keeps the indices
+ * as the colours they were drawn in (low 8 bits red, next 4 the low nibble of
+ * green), so the pixels come back as RGBA and turn back into indices here,
+ * in `type`, rows padded to GL_PACK_ALIGNMENT. Without this the host's
+ * RGBA-only GL refused the read and IRIS GL's readpixels gave index 0. The
+ * index shift, offset and maps are taken as identity.
+ */
+void
+hgl_read_index(GLint x, GLint y, GLsizei w, GLsizei h, GLenum type, GLvoid *pixels)
+{
+	unsigned char *rgba, *row;
+	GLint align = 4;
+	long size, stride, i, j;
+	unsigned long mask = (1UL << hgl_index_bits) - 1;
+
+	if (w <= 0 || h <= 0 || pixels == NULL)
+		return;
+	switch (type) {
+	case GL_UNSIGNED_BYTE: case GL_BYTE: size = 1; break;
+	case GL_UNSIGNED_SHORT: case GL_SHORT: size = 2; break;
+	case GL_UNSIGNED_INT: case GL_INT: case GL_FLOAT: size = 4; break;
+	default: return;
+	}
+	rgba = malloc((size_t)w * h * 4);
+	if (rgba == NULL)
+		return;
+	glGetIntegerv(GL_PACK_ALIGNMENT, &align);
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glReadPixels(x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	glPixelStorei(GL_PACK_ALIGNMENT, align);
+	if (align < 1)
+		align = 1;
+	stride = (w * size + align - 1) / align * align;
+	for (j = 0; j < h; j++) {
+		row = (unsigned char *)pixels + j * stride;
+		for (i = 0; i < w; i++) {
+			const unsigned char *p = rgba + (j * w + i) * 4;
+			unsigned long v = ((unsigned long)p[0] | (unsigned long)(p[1] & 0x0f) << 8) & mask;
+
+			switch (type) {
+			case GL_UNSIGNED_BYTE: case GL_BYTE: row[i] = (unsigned char)v; break;
+			case GL_UNSIGNED_SHORT: case GL_SHORT: ((unsigned short *)row)[i] = (unsigned short)v; break;
+			case GL_UNSIGNED_INT: case GL_INT: ((unsigned int *)row)[i] = (unsigned int)v; break;
+			case GL_FLOAT: ((float *)row)[i] = (float)v; break;
+			}
+		}
+	}
+	free(rgba);
 }
 
 /* Whole planes only: the host masks a component or not. */

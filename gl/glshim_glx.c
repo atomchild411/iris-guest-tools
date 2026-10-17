@@ -111,9 +111,24 @@ pbuffer_of(GLXDrawable d)
 struct HGL_FBCONFIG_REC {
 	XVisualInfo vi;
 	int samples;        /* GLX_SGIS_multisample */
+	const struct hgl_fbcfg *fb;     /* the server's FBConfig, if it has them */
 };
-static struct HGL_FBCONFIG_REC configs[8];
+static struct HGL_FBCONFIG_REC configs[96];
 static int nconfigs;
+
+/* The server's FBConfig for a visual, or NULL. */
+static const struct hgl_fbcfg *
+fbconfig_of_visual(Display *dpy, int screen, VisualID id)
+{
+	const struct hgl_fbcfg *f;
+	int i, n, v;
+
+	f = hgl_glx_fbconfigs(dpy, screen, &n);
+	for (i = 0; f != NULL && i < n; i++)
+		if (hgl_fbcfg_attr(&f[i], GLX_VISUAL_ID, &v) && (VisualID)v == id)
+			return &f[i];
+	return NULL;
+}
 
 static GLXFBConfigSGIX
 config_for(Display *dpy, XVisualInfo *vi)
@@ -126,6 +141,8 @@ config_for(Display *dpy, XVisualInfo *vi)
 	if (nconfigs == (int)(sizeof configs / sizeof configs[0]))
 		return NULL;
 	configs[nconfigs].vi = *vi;
+	configs[nconfigs].samples = 0;
+	configs[nconfigs].fb = fbconfig_of_visual(dpy, vi->screen, vi->visualid);
 	return &configs[nconfigs++];
 }
 
@@ -598,7 +615,7 @@ glXQueryVersion(Display *dpy, int *major, int *minor)
 	if (major)
 		*major = 1;
 	if (minor)
-		*minor = 2;
+		*minor = 3;
 	return True;
 }
 
@@ -872,6 +889,7 @@ cfg_fits(Display *dpy, int screen, const struct visual_want *w, const struct hgl
 }
 
 static XVisualInfo *choose_visual_own(Display *dpy, int screen, int *attribs);
+GLXFBConfig *glXGetFBConfigs(Display *dpy, int screen, int *nelements);
 
 /* An RGBA visual without a back buffer: the server's table says, or, without
  * one, it is the single-buffered visual of the old rules. */
@@ -1311,18 +1329,215 @@ glXGetCurrentReadDrawableSGI(void)
 }
 
 /* GLX_SGIX_fbconfig. */
+/*
+ * FBConfigs from the server's table (glshim_glxcfg.c), chosen by GLX 1.3's
+ * rules: GLX_DRAWABLE_TYPE and GLX_RENDER_TYPE as masks (by default a
+ * window, RGBA), GLX_LEVEL, GLX_DOUBLEBUFFER, GLX_STEREO, GLX_X_RENDERABLE,
+ * GLX_X_VISUAL_TYPE, GLX_CONFIG_CAVEAT, GLX_TRANSPARENT_TYPE and
+ * GLX_FBCONFIG_ID exactly, every size at least (GLX_DONT_CARE: any); then
+ * sorted: no caveat first, the most colour bits asked for, the smallest
+ * buffer, single buffered first, the fewest aux buffers, the deepest depth
+ * buffer, the fewest stencil bits, the largest accumulation buffer, by id.
+ * GLX_SAMPLES_SGIS is what a pbuffer made from the config gets (the host
+ * multisamples it); the table's own configs have none.
+ */
+static const int fb_exact[] = { GLX_LEVEL, GLX_DOUBLEBUFFER, GLX_STEREO, GLX_X_RENDERABLE,
+	GLX_X_VISUAL_TYPE, GLX_CONFIG_CAVEAT, GLX_TRANSPARENT_TYPE, GLX_FBCONFIG_ID, 0 };
+static const int fb_min[] = { GLX_BUFFER_SIZE, GLX_AUX_BUFFERS, GLX_RED_SIZE, GLX_GREEN_SIZE,
+	GLX_BLUE_SIZE, GLX_ALPHA_SIZE, GLX_DEPTH_SIZE, GLX_STENCIL_SIZE, GLX_ACCUM_RED_SIZE,
+	GLX_ACCUM_GREEN_SIZE, GLX_ACCUM_BLUE_SIZE, GLX_ACCUM_ALPHA_SIZE, 0 };
+
+static int
+fb_get(const struct hgl_fbcfg *c, int attr)
+{
+	int v = 0;
+
+	(void)hgl_fbcfg_attr(c, attr, &v);
+	return v;
+}
+
+static int
+fb_fits(const struct hgl_fbcfg *c, const int *want)
+{
+	int i, k, v, a, found;
+
+	/* Defaults: a window, RGBA, stereo off, level 0. */
+	if ((fb_get(c, GLX_DRAWABLE_TYPE) & GLX_WINDOW_BIT) == 0 || (fb_get(c, GLX_RENDER_TYPE) & GLX_RGBA_BIT) == 0 ||
+	    fb_get(c, GLX_STEREO) != 0 || fb_get(c, GLX_LEVEL) != 0) {
+		/* ... unless the list says otherwise: checked below. */
+		int dt = 0, rt = 0, st = 0, lv = 0;
+
+		for (i = 0; want != NULL && want[i] != None; i += 2) {
+			dt |= want[i] == GLX_DRAWABLE_TYPE;
+			rt |= want[i] == GLX_RENDER_TYPE;
+			st |= want[i] == GLX_STEREO;
+			lv |= want[i] == GLX_LEVEL;
+		}
+		if ((!dt && (fb_get(c, GLX_DRAWABLE_TYPE) & GLX_WINDOW_BIT) == 0) ||
+		    (!rt && (fb_get(c, GLX_RENDER_TYPE) & GLX_RGBA_BIT) == 0) ||
+		    (!st && fb_get(c, GLX_STEREO) != 0) || (!lv && fb_get(c, GLX_LEVEL) != 0))
+			return 0;
+	}
+	for (i = 0; want != NULL && want[i] != None; i += 2) {
+		a = want[i];
+		v = want[i + 1];
+		if (v == (int)GLX_DONT_CARE || a == GLX_SAMPLES_SGIS || a == GLX_SAMPLE_BUFFERS_SGIS)
+			continue;
+		if (a == GLX_DRAWABLE_TYPE || a == GLX_RENDER_TYPE) {
+			if ((fb_get(c, a) & v) != v)
+				return 0;
+			continue;
+		}
+		for (k = 0, found = 0; fb_exact[k] != 0; k++)
+			if (fb_exact[k] == a) {
+				if (fb_get(c, a) != v)
+					return 0;
+				found = 1;
+			}
+		for (k = 0; !found && fb_min[k] != 0; k++)
+			if (fb_min[k] == a && fb_get(c, a) < v)
+				return 0;
+	}
+	return 1;
+}
+
+static const int *fb_sort_want;
+static Display *fb_sort_dpy;
+static int fb_sort_screen;
+
+/*
+ * Whether host GL can show a window of this config: RGBA reaches the screen
+ * as 24-bit pixels (TrueColor, depth 24), colour indices in 8- and 12-bit
+ * windows and overlays. Those sort first: IMPACT's 12-bit RGBA configs have
+ * the smallest buffers, so GLX's order put them first, and a program asking
+ * for any RGBA config got a window nothing here could show.
+ */
+static int
+fb_showable(const struct hgl_fbcfg *c)
+{
+	XVisualInfo tmpl, *vi;
+	int n, ok, v = 0;
+
+	if (!hgl_fbcfg_attr(c, GLX_VISUAL_ID, &v) || v == 0)
+		return 0;
+	tmpl.screen = fb_sort_screen;
+	tmpl.visualid = (VisualID)v;
+	if ((vi = XGetVisualInfo(fb_sort_dpy, VisualScreenMask | VisualIDMask, &tmpl, &n)) == NULL)
+		return 0;
+	if (fb_get(c, GLX_RENDER_TYPE) & GLX_RGBA_BIT)
+		ok = vi->class == TrueColor && vi->depth == 24;
+	else
+		ok = vi->depth == 8 || vi->depth == 12;
+	XFree(vi);
+	return ok;
+}
+
+static int
+fb_cmp(const void *pa, const void *pb)
+{
+	const struct hgl_fbcfg *a = *(const struct hgl_fbcfg * const *)pa, *b = *(const struct hgl_fbcfg * const *)pb;
+	static const int colour[] = { GLX_RED_SIZE, GLX_GREEN_SIZE, GLX_BLUE_SIZE, GLX_ALPHA_SIZE };
+	int ca = 0, cb = 0, i, k, d;
+
+	if ((d = fb_showable(b) - fb_showable(a)) != 0)
+		return d;
+	if ((d = fb_get(a, GLX_CONFIG_CAVEAT) - fb_get(b, GLX_CONFIG_CAVEAT)) != 0)
+		return d;
+	for (k = 0; k < 4; k++)
+		for (i = 0; fb_sort_want != NULL && fb_sort_want[i] != None; i += 2)
+			if (fb_sort_want[i] == colour[k] && fb_sort_want[i + 1] != 0 && fb_sort_want[i + 1] != (int)GLX_DONT_CARE) {
+				ca += fb_get(a, colour[k]);
+				cb += fb_get(b, colour[k]);
+			}
+	if (ca != cb)
+		return cb - ca;
+	if ((d = fb_get(a, GLX_BUFFER_SIZE) - fb_get(b, GLX_BUFFER_SIZE)) != 0 ||
+	    (d = fb_get(a, GLX_DOUBLEBUFFER) - fb_get(b, GLX_DOUBLEBUFFER)) != 0 ||
+	    (d = fb_get(a, GLX_AUX_BUFFERS) - fb_get(b, GLX_AUX_BUFFERS)) != 0 ||
+	    (d = fb_get(b, GLX_DEPTH_SIZE) - fb_get(a, GLX_DEPTH_SIZE)) != 0 ||
+	    (d = fb_get(a, GLX_STENCIL_SIZE) - fb_get(b, GLX_STENCIL_SIZE)) != 0 ||
+	    (d = fb_get(b, GLX_ACCUM_RED_SIZE) - fb_get(a, GLX_ACCUM_RED_SIZE)) != 0)
+		return d;
+	return fb_get(a, GLX_FBCONFIG_ID) - fb_get(b, GLX_FBCONFIG_ID);
+}
+
+/* The record for one of the server's FBConfigs (its visual's). */
+static GLXFBConfigSGIX
+config_of_fb(Display *dpy, int screen, const struct hgl_fbcfg *f)
+{
+	XVisualInfo tmpl, *vi;
+	GLXFBConfigSGIX c;
+	int i, n, v = 0;
+
+	for (i = 0; i < nconfigs; i++)
+		if (configs[i].fb == f)
+			return &configs[i];
+	if (!hgl_fbcfg_attr(f, GLX_VISUAL_ID, &v) || v == 0)
+		return NULL;
+	tmpl.screen = screen;
+	tmpl.visualid = (VisualID)v;
+	vi = XGetVisualInfo(dpy, VisualScreenMask | VisualIDMask, &tmpl, &n);
+	if (vi == NULL)
+		return NULL;
+	c = config_for(dpy, vi);
+	XFree(vi);
+	if (c != NULL)
+		c->fb = f;
+	return c;
+}
+
 GLXFBConfigSGIX *
 glXChooseFBConfigSGIX(Display *dpy, int screen, int *attrib_list, int *nitems)
 {
 	XVisualInfo tmpl, *vis;
 	GLXFBConfigSGIX *out;
-	int n, i;
+	const struct hgl_fbcfg *f, **pick;
+	int n, i, m;
 
 	int samples = 0;
 
 	for (i = 0; attrib_list != NULL && attrib_list[i] != None; i += 2)
 		if (attrib_list[i] == GLX_SAMPLES_SGIS)
 			samples = attrib_list[i + 1];
+	if ((f = hgl_glx_fbconfigs(dpy, screen, &n)) != NULL) {
+		/* No attributes at all: every config, in the server's order, as
+		 * SGI's library answers (its glxinfo lists them so). */
+		if (attrib_list == NULL || attrib_list[0] == None)
+			return (GLXFBConfigSGIX *)glXGetFBConfigs(dpy, screen, nitems);
+		pick = malloc(n * sizeof *pick);
+		out = malloc((n + 1) * sizeof *out);
+		if (pick == NULL || out == NULL) {
+			free(pick);
+			free(out);
+			*nitems = 0;
+			return NULL;
+		}
+		for (i = m = 0; i < n; i++)
+			if (fb_fits(&f[i], attrib_list))
+				pick[m++] = &f[i];
+		fb_sort_want = attrib_list;
+		fb_sort_dpy = dpy;
+		fb_sort_screen = screen;
+		qsort(pick, m, sizeof *pick, fb_cmp);
+		if (getenv("IRIS_GL_DEBUG") != NULL) {
+			fprintf(stderr, "libGL: glXChooseFBConfig:");
+			for (i = 0; attrib_list != NULL && attrib_list[i] != None && i < 64; i += 2)
+				fprintf(stderr, " %#x=%#x", attrib_list[i], attrib_list[i + 1]);
+			fprintf(stderr, " -> %d of %d\n", m, n);
+		}
+		for (i = n = 0; i < m; i++)
+			if ((out[n] = config_of_fb(dpy, screen, pick[i])) != NULL) {
+				out[n]->samples = samples;
+				n++;
+			}
+		free(pick);
+		*nitems = n;
+		if (n == 0) {
+			free(out);
+			return NULL;
+		}
+		return out;
+	}
 	tmpl.screen = screen;
 	tmpl.depth = 24;
 	tmpl.class = TrueColor;
@@ -1365,6 +1580,19 @@ glXGetFBConfigAttribSGIX(Display *dpy, GLXFBConfigSGIX config, int attribute, in
 {
 	if (config == NULL)
 		return GLX_BAD_VISUAL;
+	/* The server's answer, but a pbuffer config's samples are ours. */
+	if (config->fb != NULL && attribute != GLX_SAMPLES_SGIS && attribute != GLX_SAMPLE_BUFFERS_SGIS) {
+		if (hgl_fbcfg_attr(config->fb, attribute, value))
+			return 0;
+		if (attribute == GLX_RGBA) {
+			*value = (fb_get(config->fb, GLX_RENDER_TYPE) & GLX_RGBA_BIT) != 0;
+			return 0;
+		}
+		if (attribute == GLX_USE_GL) {
+			*value = 1;
+			return 0;
+		}
+	}
 	switch (attribute) {
 	case GLX_FBCONFIG_ID_SGIX:
 		*value = (int)config->vi.visualid;
@@ -1620,20 +1848,35 @@ glXQueryExtensionsString(Display *dpy, int screen)
 	return glx_string(0);
 }
 
+/*
+ * The vendor and version strings are the X server's, as SGI's library gives
+ * them (SGI, 1.3 Irix 6.5 on IMPACT): this library implements GLX 1.3. The
+ * extension list stays this library's own -- the server's, less
+ * GLX_EXT_import_context (a context of another client cannot be imported
+ * here), plus GLX_SGIS_multisample (pbuffers are multisampled on the host).
+ */
+static const char *
+glx_client_string(Display *dpy, int screen, int name)
+{
+	const char *s;
+
+	if (name != GLX_EXTENSIONS && (s = hgl_glx_server_string(dpy, screen, name == GLX_VENDOR ? 1 : 2)) != NULL)
+		return s;
+	return glx_string(name == GLX_VERSION ? 2 : name == GLX_EXTENSIONS ? 0 : 1);
+}
+
 const char *
 glXGetClientString(Display *dpy, int name)
 {
-	(void)dpy;
-	return glx_string(name == GLX_VERSION ? 2 : name == GLX_EXTENSIONS ? 0 : 1);
+	return glx_client_string(dpy, dpy != NULL ? DefaultScreen(dpy) : 0, name);
 }
 
 const char *
 glXQueryServerString(Display *dpy, int screen, int name)
 {
-	(void)dpy;
-	(void)screen;
-	return glx_string(name == GLX_VERSION ? 2 : name == GLX_EXTENSIONS ? 0 : 1);
+	return glx_client_string(dpy, screen, name);
 }
+
 
 GLXContext
 glXGetCurrentContext(void)
@@ -1997,10 +2240,25 @@ glXChooseFBConfig(Display *dpy, int screen, int *attribList, int *nitems)
 	return glXChooseFBConfigSGIX(dpy, screen, attribList, nitems);
 }
 
+/* Every FBConfig the server has (glxinfo lists these), in its order. */
 GLXFBConfig *
 glXGetFBConfigs(Display *dpy, int screen, int *nelements)
 {
-	return glXChooseFBConfigSGIX(dpy, screen, NULL, nelements);
+	const struct hgl_fbcfg *f;
+	GLXFBConfig *out;
+	int i, n, m;
+
+	if ((f = hgl_glx_fbconfigs(dpy, screen, &n)) == NULL)
+		return glXChooseFBConfigSGIX(dpy, screen, NULL, nelements);
+	if ((out = malloc((n + 1) * sizeof *out)) == NULL) {
+		*nelements = 0;
+		return NULL;
+	}
+	for (i = m = 0; i < n; i++)
+		if ((out[m] = config_of_fb(dpy, screen, &f[i])) != NULL)
+			m++;
+	*nelements = m;
+	return out;
 }
 
 int
@@ -2217,3 +2475,24 @@ Bool glXAssociateDMPbufferSGIX(Display *d, GLXPbufferSGIX p, void *params, void 
  * attributes are ignored, and none are answered. */
 GLXFBConfigSGIX *glXChooseFBConfigWithFltSGIX(Display *d, int s, int *a, float *fa, int *n) { (void)fa; return glXChooseFBConfigSGIX(d, s, a, n); }
 int glXGetFBConfigFltAttribSGIX(Display *d, GLXFBConfigSGIX c, int a, float *v) { (void)d; (void)c; (void)a; (void)v; return GLX_BAD_ATTRIBUTE; }
+
+/*
+ * SGI's private GL_SGIX_igloo_interface, which SGI's IRIS GL (IGLOO) looks up
+ * in libGL.so to have SGI's library do the IRIS GL things OpenGL does not.
+ * 0x81A3 (its first word: on or off) is lmcolor(LMC_COLOR), done here (see
+ * hgl_lmc in glshim_rt.c); the rest are taken and left to IGLOO's own way
+ * (IRIS_GL_IGLOO_LOG=1 lists them).
+ */
+void
+glIglooInterfaceSGIX(GLenum pname, const GLvoid *params)
+{
+	const unsigned int *u = (const unsigned int *)params;
+	static int log = -1;
+
+	if (log < 0)
+		log = getenv("IRIS_GL_IGLOO_LOG") != NULL;
+	if (log)
+		fprintf(stderr, "libGL: glIglooInterfaceSGIX(%#x, %#x)\n", (unsigned)pname, u != NULL ? u[0] : 0);
+	if (pname == 0x81A3 && u != NULL)
+		hgl_lmc_set(u[0] != 0);
+}

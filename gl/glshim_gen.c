@@ -1808,6 +1808,7 @@ void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, con
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
+	if (hgl_index_mode && format == GL_COLOR_INDEX) { hgl_draw_index(width, height, type, pixels); return; }
 	HGL_CMD(_c, HGL_OP_glDrawPixels, HGL_ROUND8(32 + _tail));
 	HGL_PUT_I(_c, 4, width);
 	HGL_PUT_I(_c, 8, height);

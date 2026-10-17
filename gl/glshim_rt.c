@@ -960,6 +960,89 @@ hgl_lmc_after_end(void)
 }
 
 /*
+ * glDrawPixels(GL_COLOR_INDEX) in an index context: the host's GL is RGBA, so
+ * it turned the indices into colours through its pixel maps -- all 0 -- and
+ * the image drew as index 0. Mekton's cockpit, a full-screen 16-bit index
+ * image in its overlay, was not there. Here each index (read in `type` by the
+ * program's unpack state, through GL_INDEX_SHIFT and GL_INDEX_OFFSET, to the
+ * window's bits) becomes the colour an index context draws it as (low 8 bits
+ * red, next 4 green; see hgl_index), and that goes as RGBA with plain unpack
+ * state, put back afterwards. GL_MAP_COLOR's index map is not applied.
+ */
+void
+hgl_draw_index(GLsizei w, GLsizei h, GLenum type, const GLvoid *pixels)
+{
+	GLint row_len = 0, skip_rows = 0, skip_px = 0, align = 4, swap = 0, shift = 0, offset = 0;
+	unsigned char *rgba;
+	const unsigned char *src;
+	long size, stride, i, j;
+	unsigned long mask = (1UL << hgl_index_bits) - 1, v;
+
+	if (w <= 0 || h <= 0 || pixels == NULL)
+		return;
+	switch (type) {
+	case GL_UNSIGNED_BYTE: case GL_BYTE: size = 1; break;
+	case GL_UNSIGNED_SHORT: case GL_SHORT: size = 2; break;
+	case GL_UNSIGNED_INT: case GL_INT: case GL_FLOAT: size = 4; break;
+	default: return;        /* GL_BITMAP: not drawn by anything seen yet */
+	}
+	glGetIntegerv(GL_UNPACK_ROW_LENGTH, &row_len);
+	glGetIntegerv(GL_UNPACK_SKIP_ROWS, &skip_rows);
+	glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &skip_px);
+	glGetIntegerv(GL_UNPACK_ALIGNMENT, &align);
+	glGetIntegerv(GL_UNPACK_SWAP_BYTES, &swap);
+	glGetIntegerv(GL_INDEX_SHIFT, &shift);
+	glGetIntegerv(GL_INDEX_OFFSET, &offset);
+	if (row_len <= 0)
+		row_len = w;
+	if (align < 1)
+		align = 1;
+	stride = (row_len * size + align - 1) / align * align;
+	if ((rgba = malloc((size_t)w * h * 4)) == NULL)
+		return;
+	for (j = 0; j < h; j++) {
+		src = (const unsigned char *)pixels + (skip_rows + j) * stride + skip_px * size;
+		for (i = 0; i < w; i++, src += size) {
+			unsigned char b[4];
+			long k;
+			double f;
+
+			for (k = 0; k < size; k++)
+				b[k] = swap ? src[size - 1 - k] : src[k];
+			switch (type) {
+			case GL_UNSIGNED_BYTE: v = b[0]; break;
+			case GL_BYTE: v = (unsigned long)(signed char)b[0]; break;
+			case GL_UNSIGNED_SHORT: v = (unsigned long)(b[0] << 8 | b[1]); break;
+			case GL_SHORT: v = (unsigned long)(short)(b[0] << 8 | b[1]); break;
+			case GL_FLOAT:
+				f = (double)*(const float *)(const void *)b;
+				v = f < 0 ? 0 : (unsigned long)f;
+				break;
+			default: v = (unsigned long)b[0] << 24 | (unsigned long)b[1] << 16 | b[2] << 8 | b[3]; break;
+			}
+			v = (shift >= 0 ? v << shift : v >> -shift) + (unsigned long)offset;
+			v &= mask;
+			rgba[(j * w + i) * 4] = (unsigned char)(v & 0xff);
+			rgba[(j * w + i) * 4 + 1] = (unsigned char)(v >> 8 & 0x0f);
+			rgba[(j * w + i) * 4 + 2] = 0;
+			rgba[(j * w + i) * 4 + 3] = 0xff;
+		}
+	}
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	glPixelStorei(GL_UNPACK_SWAP_BYTES, 0);
+	glDrawPixels(w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, row_len == w ? 0 : row_len);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS, skip_rows);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS, skip_px);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, align);
+	glPixelStorei(GL_UNPACK_SWAP_BYTES, swap);
+	free(rgba);
+}
+
+/*
  * glReadPixels(GL_COLOR_INDEX) in an index context: the host keeps the indices
  * as the colours they were drawn in (low 8 bits red, next 4 the low nibble of
  * green), so the pixels come back as RGBA and turn back into indices here,

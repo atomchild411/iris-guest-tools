@@ -19,7 +19,9 @@
 #include <errno.h>
 #include <math.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/types.h>
+#include <sys/mman.h>
 #include <sys/time.h>
 #include <time.h>
 #include <GL/gl.h>
@@ -78,6 +80,32 @@ static unsigned long st_waits_by_op[HGL_OPS];
 static int last_op = -1;
 /* Waits by host operation, HGL_GL_* & 0xff (BATCH is broken out above). */
 static unsigned long st_waits_by_hgl[32];
+
+/*
+ * SGI's per-thread GL page. SGI's libGL maps a page of zeroes at 0x1000 --
+ * rounded down to a page, so at 0 with a 64-bit kernel's 16 KB pages --
+ * private to each thread (MAP_LOCAL), as it loads (__glXInit), and its GL
+ * libraries keep their per-thread state in fixed words of it: SGI's IRIS GL
+ * (IGLOO, /usr/gfx/arch/IGLOO32/libgl.so, IRIS GL drawn through OpenGL) its
+ * own at 0x1000-0x100c, which it reads before main runs. Over this library,
+ * which made no such page, its first read faulted. The page is made the same
+ * way when this library loads (-init, see build.sh), so SGI's IRIS GL can run
+ * on host OpenGL. Nothing here uses the page.
+ */
+void
+hgl_lib_init(void)
+{
+	long at = 0x1000 & ~((long)getpagesize() - 1);
+	int fd = open("/dev/zero", O_RDWR);
+
+	if (fd < 0)
+		return;
+#ifndef MAP_LOCAL
+#define MAP_LOCAL 0
+#endif
+	(void)mmap((void *)at, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_FIXED | MAP_LOCAL, fd, 0);
+	close(fd);
+}
 
 /*
  * Microseconds from a clock that does not jump. CLOCK_SGI_CYCLE is the free

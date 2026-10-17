@@ -45,8 +45,11 @@ typedef XID GLXPbuffer;
 #endif
 #include "glshim.h"
 #include "glshim_rt.h"
+#include "glshim_glxcfg.h"
 
 void hgl_present_front(Display *dpy, GLXDrawable d);
+static void present_index(Display *dpy, GLXDrawable d, int flush);
+static int index_window(Display *dpy, GLXDrawable d);
 int hgl_front_buffers(void);
 
 /*
@@ -301,7 +304,9 @@ present_front(const char *by)
 	 * buffer is shown by a swap. */
 	if (cur_dpy != NULL && cur_draw != None && glxpixmap_of(cur_draw) < 0 &&
 	    (hgl_front_drawn(1) || hgl_index_mode)) {
-		if (hgl_fronts && !hgl_index_mode)
+		if (hgl_index_mode || index_window(cur_dpy, cur_draw))
+			present_index(cur_dpy, cur_draw, 1);
+		else if (hgl_fronts)
 			hgl_present_front(cur_dpy, cur_draw);
 		else
 			glXSwapBuffers(cur_dpy, cur_draw);
@@ -452,8 +457,16 @@ glXUseXFont(Font font, int first, int count, int listBase)
 static char *index_frame;
 static int index_frame_bytes;
 
+static int unobscured(Display *dpy, Window w);
+static int overlay_of(Display *dpy, VisualID id);
+
+/*
+ * A colour-index window to the screen. flush: shown because the program
+ * flushed or switched contexts, not by a swap -- bit 4, so a swap interval
+ * does not pace it.
+ */
 static void
-present_index(Display *dpy, GLXDrawable d)
+present_index(Display *dpy, GLXDrawable d, int flush)
 {
 	XWindowAttributes wa;
 	hgl_slot a[7];
@@ -491,6 +504,25 @@ present_index(Display *dpy, GLXDrawable d)
 	a[2].i = h;
 	a[3].i = 0;
 	a[4].i = a[5].i = a[6].i = 0;
+	/*
+	 * A window on the screen that nothing covers goes to a host that keeps
+	 * colour-index pixels as indices, for it to put into the window itself
+	 * (bit 2; bit 3 for an overlay), as RGBA frames are composited (see
+	 * present_window). It answers nonzero and nothing comes back. A host
+	 * without that hands the frame back, and it is put up below.
+	 */
+	if (getenv("IRIS_HOSTGL_XPUTIMAGE") == NULL && wa.map_state == IsViewable && unobscured(dpy, d)) {
+		Window child;
+		int sx, sy;
+
+		if (XTranslateCoordinates(dpy, d, DefaultRootWindow(dpy), 0, 0, &sx, &sy, &child)) {
+			a[4].i = sx;
+			a[5].i = sy;
+			a[6].i = 1 | 4 | (overlay_of(dpy, XVisualIDFromVisual(wa.visual)) >= 0 ? 8 : 0);
+		}
+	}
+	if (flush)
+		a[6].i |= 16;
 	if (hgl_call2(HGL_GL_SWAP, a, &wait) != 0) {
 		XDestroyImage(im);
 		return;
@@ -715,11 +747,152 @@ single_visual(Display *dpy, int screen)
 	return single_vid;
 }
 
+/*
+ * glXChooseVisual over the server's table (glshim_glxcfg.c), by GLX 1.2's
+ * rules: GLX_RGBA, GLX_DOUBLEBUFFER and GLX_STEREO as asked (one not named
+ * means a visual without it), GLX_LEVEL exactly, every size at least what is
+ * asked. Among those: the smallest colour-index buffer; for each colour
+ * component, the smallest when none is asked for and the largest otherwise;
+ * no depth or accumulation buffer when none is asked for and the largest
+ * otherwise; the fewest stencil bits and aux buffers. Then, as before, an
+ * overlay with a transparent pixel; then the lowest visual id.
+ *
+ * What the host can show narrows the choice first: RGBA drawing reaches the
+ * screen as 24-bit pixels, so an RGBA visual must be a 24-bit TrueColor one
+ * (IMPACT's 12-bit RGBA visuals are left out), and colour indices are put
+ * into 8- and 12-bit windows.
+ */
+struct visual_want {
+	int rgba, dbl, stereo, level, buffer, aux;
+	int red, green, blue, alpha, depth, stencil, accum[4];
+};
+
+static void
+want_of(const int *a, struct visual_want *w)
+{
+	memset(w, 0, sizeof *w);
+	while (a != NULL && *a != None) {
+		switch (*a) {
+		case GLX_USE_GL: a++; continue;
+		case GLX_RGBA: w->rgba = 1; a++; continue;
+		case GLX_DOUBLEBUFFER: w->dbl = 1; a++; continue;
+		case GLX_STEREO: w->stereo = 1; a++; continue;
+		case GLX_BUFFER_SIZE: w->buffer = a[1]; break;
+		case GLX_LEVEL: w->level = a[1]; break;
+		case GLX_AUX_BUFFERS: w->aux = a[1]; break;
+		case GLX_RED_SIZE: w->red = a[1]; break;
+		case GLX_GREEN_SIZE: w->green = a[1]; break;
+		case GLX_BLUE_SIZE: w->blue = a[1]; break;
+		case GLX_ALPHA_SIZE: w->alpha = a[1]; break;
+		case GLX_DEPTH_SIZE: w->depth = a[1]; break;
+		case GLX_STENCIL_SIZE: w->stencil = a[1]; break;
+		case GLX_ACCUM_RED_SIZE: w->accum[0] = a[1]; break;
+		case GLX_ACCUM_GREEN_SIZE: w->accum[1] = a[1]; break;
+		case GLX_ACCUM_BLUE_SIZE: w->accum[2] = a[1]; break;
+		case GLX_ACCUM_ALPHA_SIZE: w->accum[3] = a[1]; break;
+		default: break;
+		}
+		a += 2;
+	}
+}
+
+/* A size by its rule: the smallest when none is asked for, else the largest. */
+static int
+size_cmp(int want, int a, int b)
+{
+	return want == 0 ? a - b : b - a;
+}
+
+static int
+cfg_tag(const struct hgl_glxcfg *c, int tag, int *value)
+{
+	int i;
+
+	for (i = 0; i < c->ntags; i++)
+		if (c->tags[i][0] == tag) {
+			*value = c->tags[i][1];
+			return 1;
+		}
+	return 0;
+}
+
+/* Negative: a is the better choice for w. */
+static int
+cfg_cmp(const struct visual_want *w, const struct hgl_glxcfg *a, const struct hgl_glxcfg *b)
+{
+	int d, ta = 0, tb = 0;
+
+	if (w->level != 0) {
+		(void)cfg_tag(a, GLX_TRANSPARENT_TYPE_EXT, &ta);
+		(void)cfg_tag(b, GLX_TRANSPARENT_TYPE_EXT, &tb);
+		if ((ta != GLX_NONE_EXT) != (tb != GLX_NONE_EXT))
+			return ta != GLX_NONE_EXT ? -1 : 1;
+	}
+	if (!w->rgba && (d = a->buffer - b->buffer) != 0)
+		return d;
+	if ((d = size_cmp(w->red, a->red, b->red)) != 0 ||
+	    (d = size_cmp(w->green, a->green, b->green)) != 0 ||
+	    (d = size_cmp(w->blue, a->blue, b->blue)) != 0 ||
+	    (d = size_cmp(w->alpha, a->alpha, b->alpha)) != 0 ||
+	    (d = size_cmp(w->depth, a->depth, b->depth)) != 0 ||
+	    (d = a->stencil - b->stencil) != 0 ||
+	    (d = size_cmp(w->accum[0], a->accum_red, b->accum_red)) != 0 ||
+	    (d = size_cmp(w->accum[3], a->accum_alpha, b->accum_alpha)) != 0 ||
+	    (d = a->aux - b->aux) != 0)
+		return d;
+	return a->id < b->id ? -1 : a->id > b->id;
+}
+
+static int
+cfg_fits(Display *dpy, int screen, const struct visual_want *w, const struct hgl_glxcfg *c)
+{
+	XVisualInfo tmpl, *vi;
+	int n, ok;
+
+	if (c->rgba != w->rgba || c->dbl != w->dbl || c->stereo != w->stereo || c->level != w->level ||
+	    c->aux < w->aux || c->depth < w->depth || c->stencil < w->stencil ||
+	    c->accum_red < w->accum[0] || c->accum_green < w->accum[1] ||
+	    c->accum_blue < w->accum[2] || c->accum_alpha < w->accum[3])
+		return 0;
+	if (w->rgba ? (c->red < w->red || c->green < w->green || c->blue < w->blue || c->alpha < w->alpha)
+	    : c->buffer < w->buffer)
+		return 0;
+	/* What the host can show (see above). */
+	tmpl.screen = screen;
+	tmpl.visualid = c->id;
+	vi = XGetVisualInfo(dpy, VisualScreenMask | VisualIDMask, &tmpl, &n);
+	if (vi == NULL)
+		return 0;
+	if (w->rgba)
+		ok = vi->class == TrueColor && vi->depth == 24;
+	else
+		ok = vi->depth == 8 || vi->depth == 12;
+	XFree(vi);
+	return ok;
+}
+
+static XVisualInfo *choose_visual_own(Display *dpy, int screen, int *attribs);
+
+/* An RGBA visual without a back buffer: the server's table says, or, without
+ * one, it is the single-buffered visual of the old rules. */
+static int
+single_rgba(Display *dpy, XVisualInfo *vis)
+{
+	const struct hgl_glxcfg *c;
+	int n;
+
+	if (hgl_glx_configs(dpy, vis->screen, &n) != NULL)
+		return (c = hgl_glx_config(dpy, vis->screen, vis->visualid)) != NULL && c->rgba && !c->dbl;
+	return vis->visualid == single_visual(dpy, vis->screen);
+}
+
 XVisualInfo *
 glXChooseVisual(Display *dpy, int screen, int *attribs)
 {
-	XVisualInfo tmpl, *vi;
-	int n, i, rgba, dbl, level = glx_attribs(attribs, &rgba, &dbl), pick = -1;
+	const struct hgl_glxcfg *c, *best = NULL;
+	struct visual_want w;
+	XVisualInfo tmpl;
+	int n, i;
 
 	/* IRIS_GL_DEBUG: what the program asked for, attribute by attribute. */
 	if (getenv("IRIS_GL_DEBUG") != NULL) {
@@ -728,6 +901,26 @@ glXChooseVisual(Display *dpy, int screen, int *attribs)
 			fprintf(stderr, " %d", attribs[i]);
 		fprintf(stderr, "\n");
 	}
+	if ((c = hgl_glx_configs(dpy, screen, &n)) == NULL)
+		return choose_visual_own(dpy, screen, attribs);
+	want_of(attribs, &w);
+	for (i = 0; i < n; i++)
+		if (cfg_fits(dpy, screen, &w, &c[i]) && (best == NULL || cfg_cmp(&w, &c[i], best) < 0))
+			best = &c[i];
+	if (best == NULL)
+		return NULL;
+	tmpl.screen = screen;
+	tmpl.visualid = best->id;
+	return XGetVisualInfo(dpy, VisualScreenMask | VisualIDMask, &tmpl, &n);
+}
+
+/* The rules from before the server's table, for a server without GLX. */
+static XVisualInfo *
+choose_visual_own(Display *dpy, int screen, int *attribs)
+{
+	XVisualInfo tmpl, *vi;
+	int n, i, rgba, dbl, level = glx_attribs(attribs, &rgba, &dbl), pick = -1;
+
 	if (level != 0) {
 		if (rgba || level < 0)
 			return NULL;
@@ -780,10 +973,49 @@ overlay_config(int o, XVisualInfo *vis, int attrib, int *value)
 	return 0;
 }
 
+/* glXGetConfig from the server's table: what SGI's libGL answers. */
+static int
+config_from_table(const struct hgl_glxcfg *c, int attrib, int *value)
+{
+	switch (attrib) {
+	case GLX_USE_GL: *value = 1; return 0;
+	case GLX_BUFFER_SIZE: *value = c->buffer; return 0;
+	case GLX_LEVEL: *value = c->level; return 0;
+	case GLX_RGBA: *value = c->rgba; return 0;
+	case GLX_DOUBLEBUFFER: *value = c->dbl; return 0;
+	case GLX_STEREO: *value = c->stereo; return 0;
+	case GLX_AUX_BUFFERS: *value = c->aux; return 0;
+	case GLX_RED_SIZE: *value = c->red; return 0;
+	case GLX_GREEN_SIZE: *value = c->green; return 0;
+	case GLX_BLUE_SIZE: *value = c->blue; return 0;
+	case GLX_ALPHA_SIZE: *value = c->alpha; return 0;
+	case GLX_DEPTH_SIZE: *value = c->depth; return 0;
+	case GLX_STENCIL_SIZE: *value = c->stencil; return 0;
+	case GLX_ACCUM_RED_SIZE: *value = c->accum_red; return 0;
+	case GLX_ACCUM_GREEN_SIZE: *value = c->accum_green; return 0;
+	case GLX_ACCUM_BLUE_SIZE: *value = c->accum_blue; return 0;
+	case GLX_ACCUM_ALPHA_SIZE: *value = c->accum_alpha; return 0;
+	default:
+		return cfg_tag(c, attrib, value) ? 0 : GLX_BAD_ATTRIBUTE;
+	}
+}
+
 int
 glXGetConfig(Display *dpy, XVisualInfo *vis, int attrib, int *value)
 {
-	int o;
+	const struct hgl_glxcfg *c;
+	int o, n;
+
+	if (vis != NULL && hgl_glx_configs(dpy, vis->screen, &n) != NULL) {
+		if ((c = hgl_glx_config(dpy, vis->screen, vis->visualid)) != NULL)
+			return config_from_table(c, attrib, value);
+		/* A visual GLX does not draw into. */
+		if (attrib == GLX_USE_GL) {
+			*value = 0;
+			return 0;
+		}
+		return GLX_BAD_VISUAL;
+	}
 
 	if (vis != NULL && (o = overlay_of(dpy, vis->visualid)) >= 0)
 		return overlay_config(o, vis, attrib, value);
@@ -960,8 +1192,7 @@ glXCreateContext(Display *dpy, XVisualInfo *vis, GLXContext share, Bool direct)
 		return NULL;
 	note_index_ctx((GLXContext)(long)r, vis != NULL && (overlay_of(dpy, vis->visualid) >= 0 ||
 	    vis->class == PseudoColor || vis->class == StaticColor || vis->class == GrayScale));
-	note_single_ctx((GLXContext)(long)r, vis != NULL && vis->visualid != 0 &&
-	    vis->visualid == single_visual(dpy, vis->screen));
+	note_single_ctx((GLXContext)(long)r, vis != NULL && vis->visualid != 0 && single_rgba(dpy, vis));
 	ctxinfo_note((GLXContext)(long)r, vis, share);
 	return (GLXContext)(long)r;
 }
@@ -1565,6 +1796,37 @@ unobscured(Display *dpy, Window w)
 static void present_window(Display *dpy, GLXDrawable d, int front);
 
 /*
+ * Whether a window shows colour indices: its visual is a colour map one of 8
+ * or 12 bits. Asked of the server once a window (a few windows kept).
+ */
+#define HGL_WINKINDS 16
+static struct {
+	Window id;
+	int index;
+} winkind[HGL_WINKINDS];
+static int winkind_next;
+
+static int
+index_window(Display *dpy, GLXDrawable d)
+{
+	XWindowAttributes wa;
+	int i, index;
+
+	if (d == None || glxpixmap_of(d) >= 0 || pbuffer_of(d) >= 0)
+		return 0;
+	for (i = 0; i < HGL_WINKINDS; i++)
+		if (winkind[i].id == d)
+			return winkind[i].index;
+	index = XGetWindowAttributes(dpy, d, &wa) && wa.depth <= 12 &&
+	    (wa.visual->class == PseudoColor || wa.visual->class == StaticColor ||
+	    wa.visual->class == GrayScale);
+	winkind[winkind_next].id = d;
+	winkind[winkind_next].index = index;
+	winkind_next = (winkind_next + 1) % HGL_WINKINDS;
+	return index;
+}
+
+/*
  * A swap. A single-buffered context's drawing is its front buffer, which a
  * swap leaves as it is: shown as it stands, when the host keeps it apart.
  */
@@ -1575,16 +1837,25 @@ glXSwapBuffers(Display *dpy, GLXDrawable d)
 
 	/* What was drawn into the front buffer goes out with this frame. */
 	(void)hgl_front_drawn(1);
-	if (hgl_index_mode) {
-		present_index(dpy, d);
-		return;
-	}
 	if (swap_debug < 0)
 		swap_debug = getenv("IRIS_GL_DEBUG") != NULL;
 	if (swap_debug && swaps_said < 12) {
 		swaps_said++;
-		fprintf(stderr, "libGL: glXSwapBuffers(0x%lx)\n", (unsigned long)d);
+		fprintf(stderr, "libGL: glXSwapBuffers(0x%lx)%s%s\n", (unsigned long)d,
+		    index_window(dpy, d) ? ", colour index" : "",
+		    d != cur_draw ? ", not the current drawable" : "");
 	}
+	/* The window's kind, not the current context's: SGI's IRIS GL swaps its
+	 * colour-index window while an RGBA context is current, and a 24-bit
+	 * frame put to it was refused (BadMatch). */
+	if (index_window(dpy, d)) {
+		present_index(dpy, d, 0);
+		return;
+	}
+	/* A colour-index context's GLX pixmap or pbuffer: nothing to show, as
+	 * before. */
+	if (hgl_index_mode && (glxpixmap_of(d) >= 0 || pbuffer_of(d) >= 0))
+		return;
 	present_window(dpy, d, hgl_fronts && hgl_single_now());
 }
 

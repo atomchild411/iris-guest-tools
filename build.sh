@@ -178,6 +178,7 @@ gl() {
 	irisgl_generate "$out"
 	pack "$out" hostcall/hostcall_trap32.s hostcall/hostcall_trap64.s \
 	    gl/glshim.h gl/glshim_ops.h gl/glshim_rt.h gl/glshim_rt.c gl/glshim_glx.c \
+	    gl/glshim_glxcfg.h gl/glshim_glxcfg.c \
 	    gl/glshim_gen.c gl/glshim_sgi.c gl/glcore_stub.c \
 	    irisgl/irisgl_shim.h irisgl/irisgl_rt.c irisgl/irisgl_draw.c irisgl/irisgl_pixels.c \
 	    irisgl/irisgl_font.c irisgl/irisgl_extra.c irisgl/irisgl_nurbs.c irisgl/irisgl_pup.c "$out/gen/irisgl_stubs.c" irisgl/irisgltest.c \
@@ -191,8 +192,8 @@ mkdir -p out/n32 out/o32 out/64
 
 echo "== n32"
 rm -f so_locations.n32
-cc -n32 -mips3 -O2 -shared -Wl,-update_registry,./so_locations.n32 -Wl,-soname,libGL.so \
-    -o out/n32/libglshim.so glshim_rt.c glshim_glx.c glshim_gen.c glshim_sgi.c hostcall_trap32.s -lXext -lX11 -lm
+cc -n32 -mips3 -O2 -shared -Wl,-update_registry,./so_locations.n32 -Wl,-soname,libGL.so -Wl,-init,hgl_lib_init \
+    -o out/n32/libglshim.so glshim_rt.c glshim_glx.c glshim_glxcfg.c glshim_gen.c glshim_sgi.c hostcall_trap32.s -lXext -lX11 -lm
 cc -n32 -mips3 -O2 -shared -Wl,-update_registry,./so_locations.n32 -Wl,-soname,libgl.so \
     -o out/n32/libirisgl.so irisgl_rt.c irisgl_draw.c irisgl_pixels.c irisgl_font.c irisgl_extra.c irisgl_nurbs.c irisgl_pup.c irisgl_stubs.c out/n32/libglshim.so -lGLU -lXext -lX11 -lm
 cc -n32 -mips3 -O2 -shared -Wl,-update_registry,./so_locations.n32 -Wl,-soname,libGLcore.so \
@@ -206,8 +207,8 @@ cc -n32 -mips3 -O2 -o out/n32/irisgltest irisgltest.c out/n32/libirisgl.so -lX11
 echo "== o32"
 cp "$2" so_locations.o32
 chmod u+w so_locations.o32
-cc -o32 -O2 -shared -Wl,-update_registry,./so_locations.o32 -Wl,-soname,libGL.so \
-    -o out/o32/libglshim.so glshim_rt.c glshim_glx.c glshim_gen.c glshim_sgi.c hostcall_trap32.s -lXext -lX11 -lm
+cc -o32 -O2 -shared -Wl,-update_registry,./so_locations.o32 -Wl,-soname,libGL.so -Wl,-init,hgl_lib_init \
+    -o out/o32/libglshim.so glshim_rt.c glshim_glx.c glshim_glxcfg.c glshim_gen.c glshim_sgi.c hostcall_trap32.s -lXext -lX11 -lm
 cc -o32 -O2 -shared -Wl,-update_registry,./so_locations.o32 -Wl,-soname,libgl.so \
     -o out/o32/libirisgl.so irisgl_rt.c irisgl_draw.c irisgl_pixels.c irisgl_font.c irisgl_extra.c irisgl_nurbs.c irisgl_pup.c irisgl_stubs.c out/o32/libglshim.so -lGLU -lXext -lX11 -lm
 cc -o32 -O2 -shared -Wl,-update_registry,./so_locations.o32 -Wl,-soname,libGLcore.so \
@@ -220,7 +221,7 @@ echo "== 64"
 # OpenGL only: IRIX has no 64-bit IRIS GL. A fresh registry, as for n32.
 rm -f so_locations.64
 cc -64 -mips3 -O2 -shared -Wl,-update_registry,./so_locations.64 -Wl,-soname,libGL.so \
-    -o out/64/libglshim.so glshim_rt.c glshim_glx.c glshim_gen.c glshim_sgi.c hostcall_trap64.s -lXext -lX11 -lm
+    -o out/64/libglshim.so glshim_rt.c glshim_glx.c glshim_glxcfg.c glshim_gen.c glshim_sgi.c hostcall_trap64.s -lXext -lX11 -lm
 cc -64 -mips3 -O2 -shared -Wl,-update_registry,./so_locations.64 -Wl,-soname,libGLcore.so \
     -o out/64/libGLcore.so glcore_stub.c out/64/libglshim.so
 cc -64 -mips3 -O2 -o out/64/glcheck glcheck.c -lGL -lX11
@@ -262,7 +263,7 @@ cross() {
 	mkdir -p "$d"
 	g=$HERE/gl
 	"$gcc" -O2 -I"$inc" -I"$HERE/include" -shared -Wl,-soname,libGL.so -o "$d/libglshim.so" \
-	    "$g/glshim_rt.c" "$g/glshim_glx.c" "$g/glshim_gen.c" \
+	    "$g/glshim_rt.c" "$g/glshim_glx.c" "$g/glshim_glxcfg.c" "$g/glshim_gen.c" \
 	    "$HERE/hostcall/hostcall_trap32.s" -lXext -lX11 -lm
 	"$gcc" -O2 -I"$inc" -o "$d/glcheck" "$g/glcheck.c" "$d/libglshim.so" -lX11
 	echo "build.sh: cross: $d"

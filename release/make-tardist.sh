@@ -48,7 +48,7 @@ cp -r "$rel" "$work/src/$dest"
 		case $f in
 		$dest/install.sh)
 			echo "f 0755 root sys $f $f $tag nostrip exitop(\"sh /$dest/install.sh && cp /$dest/install.sh /$keep\") removeop(\"sh /$keep -u\")" ;;
-		$dest/n32/*|$dest/o32/*|$dest/bin/*)
+		$dest/n32/*|$dest/o32/*|$dest/bin/*|$dest/hostgl|$dest/sgigl)
 			echo "f 0755 root sys $f $f $tag nostrip" ;;
 		*)
 			echo "f 0644 root sys $f $f $tag" ;;

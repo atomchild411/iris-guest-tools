@@ -1,0 +1,14 @@
+#!/bin/sh
+# hostgl program [args...] -- run one program on the IRIS host-GL libraries
+# (OpenGL on the host computer's GPU) while the machine's default stays
+# SGI's own. Only libGL.so and libGLcore.so are taken from the guest tools
+# (/usr/local/iris-tools/hostgl/<lib dir>); libgl.so stays SGI's, so an IRIS
+# GL program runs SGI's IRIS GL (IGLOO), drawing through host OpenGL.
+# The other way round: sgigl. Bourne shell (IRIX /bin/sh).
+T=/usr/local/iris-tools/hostgl
+[ $# -gt 0 ] || { echo "usage: hostgl program [args...]" >&2; exit 2; }
+[ -f $T/lib32/libGL.so ] || { echo "hostgl: no $T/lib32/libGL.so: are the guest tools installed?" >&2; exit 1; }
+LD_LIBRARYN32_PATH=$T/lib32${LD_LIBRARYN32_PATH:+:$LD_LIBRARYN32_PATH}
+LD_LIBRARY_PATH=$T/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export LD_LIBRARYN32_PATH LD_LIBRARY_PATH
+exec "$@"

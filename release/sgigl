@@ -1,0 +1,24 @@
+#!/bin/sh
+# sgigl program [args...] -- run one program on SGI's own OpenGL and IRIS GL
+# libraries (the graphics board, natively) while the rest of the machine
+# keeps the IRIS host-GL ones. SGI's library directories come from the record
+# install.sh keeps (/usr/local/iris-tools/sgi-links-*.txt); with no record the
+# machine was never switched (install.sh -w), SGI's libraries are already the
+# default, and the program runs as it is. The other way round: hostgl.
+# Bourne shell (IRIX /bin/sh).
+dirs() {
+	sed -n 's/.*-> *//p' "$1" | sed 's,^\(\.\./\)*,/,' | sed 's,/[^/]*$,,' | sort -u | tr '\n' ':' | sed 's/:$//'
+}
+T=/usr/local/iris-tools
+[ $# -gt 0 ] || { echo "usage: sgigl program [args...]" >&2; exit 2; }
+if [ -f $T/sgi-links-lib32.txt ]; then
+	N32=`dirs $T/sgi-links-lib32.txt`
+	LD_LIBRARYN32_PATH=$N32${LD_LIBRARYN32_PATH:+:$LD_LIBRARYN32_PATH}
+	export LD_LIBRARYN32_PATH
+fi
+if [ -f $T/sgi-links-lib.txt ]; then
+	O32=`dirs $T/sgi-links-lib.txt`
+	LD_LIBRARY_PATH=$O32${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+	export LD_LIBRARY_PATH
+fi
+exec "$@"

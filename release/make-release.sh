@@ -12,8 +12,9 @@
 #
 #   iris-guest-tools-DATE-protoN.tgz         the release (DATE.SERIAL with
 #                                            SERIAL=n, for a second that day), rooted at its own
-#                                            directory: install.sh, README.txt,
-#                                            VERSION, LICENSE, n32/ [o32/], bin/
+#                                            directory: install.sh, hostgl, sgigl,
+#                                            README.txt, VERSION, LICENSE, n32/
+#                                            [o32/], bin/
 #   iris-guest-tools-DATE-protoN.tgz.sha256
 #
 # DATE is the date of the commit built; N is the host GL protocol the
@@ -42,7 +43,9 @@ iris_for() {
 	   echo "                   waiting need host GL on its own thread (techomancer/iris#218), and"
 	   echo "                   are waited for on an IRIS without it; windows' own front buffers"
 	   echo "                   need techomancer/iris#232, and front-buffer drawing is shown by a"
-	   echo "                   swap without it" ;;
+	   echo "                   swap without it; flushes shown without waiting (SGI's IRIS GL"
+	   echo "                   draws a primitive a flush) need an IRIS with HGL_GL_PRESENT_LATER,"
+	   echo "                   and are waited for without it" ;;
 	*) echo "an IRIS whose host GL speaks protocol $1" ;;
 	esac
 }
@@ -97,7 +100,7 @@ if [ -f "$MIPSPRO/o32/libglshim.so" ] && [ -f "$MIPSPRO/o32/libirisgl.so" ] && [
 	abis="n32 o32"
 	compiled="$compiled, MIPSpro 7.4 for o32"
 fi
-cp "$HERE/install.sh" "$HERE/README.txt" "$GT/LICENSE" "$stage/"
+cp "$HERE/install.sh" "$HERE/hostgl" "$HERE/sgigl" "$HERE/README.txt" "$GT/LICENSE" "$stage/"
 cat > "$stage/VERSION" <<EOF
 iris-guest-tools $date (git $rev$dirty), https://github.com/atomchild411/iris-guest-tools
 ABIs:              $abis
@@ -105,7 +108,7 @@ compiled with:     $compiled
 host GL protocol:  $proto
 needs:             $(iris_for "$proto")
 EOF
-chmod 755 "$stage/install.sh" "$stage"/n32/* "$stage"/bin/*/*
+chmod 755 "$stage/install.sh" "$stage/hostgl" "$stage/sgigl" "$stage"/n32/* "$stage"/bin/*/*
 [ -d "$stage/o32" ] && chmod 755 "$stage"/o32/*
 
 (cd "$out" && COPYFILE_DISABLE=1 tar --format ustar --uid 0 --gid 0 --uname root --gname sys \

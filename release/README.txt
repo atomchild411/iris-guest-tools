@@ -13,8 +13,22 @@ undo the install, below).
 Install, as root, from this directory:
 
     ./install.sh          switch IRIX's GL libraries to these
+    ./install.sh -w       install these but keep SGI's as the default
     ./install.sh -s       show where everything points; change nothing
     ./install.sh -u       switch back to SGI's libraries
+
+Either install also puts two wrappers in /usr/bin, for one program at a
+time:
+
+    hostgl program        run it on host GL: this release's OpenGL, and
+                          SGI's own IRIS GL (on IMPACT, SGI's IRIS GL is
+                          built on OpenGL, so it draws on the host too)
+    sgigl program         run it on SGI's own libraries, natively on the
+                          emulated board
+
+With -w the machine stays on SGI's libraries and `hostgl` opts one program
+in: that is the way to compare the two, side by side. -u takes the wrappers
+out of /usr/bin.
 
 install.sh records SGI's setup the first time it runs and never overwrites
 that record, so -u always puts SGI's libraries back. It changes the links

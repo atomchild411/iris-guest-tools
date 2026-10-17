@@ -1,14 +1,28 @@
 #!/bin/sh
 #
-# install.sh [-u | -s] [n32 | o32 ...]  -- switch an IRIX machine's OpenGL
-# and IRIS GL libraries to the IRIS host-GL ones in this release, or back.
-# Run on the IRIX machine, as root, from the unpacked release directory.
+# install.sh [-w | -u | -s] [n32 | o32 ...]  -- switch an IRIX machine's
+# OpenGL and IRIS GL libraries to the IRIS host-GL ones in this release, or
+# back. Run on the IRIX machine, as root, from the unpacked release directory.
 #
 #   install.sh        copy the libraries to /usr/local/iris-tools/<lib dir>
 #                     and point IRIX's GL links at them (recording SGI's
 #                     targets first)
+#   install.sh -w     copy the libraries but leave IRIX's links as they are:
+#                     SGI's libraries stay the default, and `hostgl program`
+#                     runs one program on host GL
 #   install.sh -u     put SGI's targets back, from that record
 #   install.sh -s     show where everything points; change nothing
+#
+# Either install also puts two wrappers in /usr/local/iris-tools/bin, linked
+# from /usr/bin (a /usr/bin name that is not a link is left alone):
+#   hostgl program    run one program with this release's libGL.so (and
+#                     libGLcore.so) by its library path: OpenGL draws on the
+#                     host, and IRIS GL is SGI's own libgl.so -- on IMPACT,
+#                     SGI's IRIS GL on OpenGL (IGLOO), so it draws on the host
+#                     too. /usr/local/iris-tools/hostgl/<lib dir> holds the two.
+#   sgigl program     run one program on SGI's libraries (from the record) on
+#                     a machine switched to these
+# -u takes the /usr/bin links out again.
 #
 # With no ABI named, every ABI this release carries is done (n32: lib32,
 # o32: lib). The test programs go to /usr/local/iris-tools/bin/<abi>.
@@ -64,12 +78,13 @@ mode=install
 case "$1" in
 -s) mode=show; shift ;;
 -u) mode=undo; shift ;;
--*) echo "usage: $0 [-u | -s] [n32 | o32 ...]" >&2; exit 2 ;;
+-w) mode=wrappers; shift ;;
+-*) echo "usage: $0 [-w | -u | -s] [n32 | o32 ...]" >&2; exit 2 ;;
 esac
 abis="$*"
 if [ -z "$abis" ]; then
 	for a in n32 o32; do
-		if [ $mode = install ]; then
+		if [ $mode = install ] || [ $mode = wrappers ]; then
 			[ -f "$HERE/$a/libglshim.so" ] && abis="$abis $a"
 		else
 			abis="$abis $a"
@@ -143,6 +158,31 @@ xservers_off() {	# take out what xservers_on added
 	echo "$XSERVERS: X server back to IRIX's library path (from the next X start: reboot)"
 }
 
+WRAPPERS="hostgl sgigl"
+BIN=$R/usr/bin
+
+wrappers_on() {	# the wrappers into $TOOLS/bin, linked from /usr/bin
+	mkdir -p $TOOLS/bin
+	for w in $WRAPPERS; do
+		[ -f "$HERE/$w" ] || continue
+		put "$HERE/$w" $TOOLS/bin/$w
+		if [ -h $BIN/$w ] || [ ! -f $BIN/$w ]; then
+			relink /usr/local/iris-tools/bin/$w $BIN/$w
+		else
+			echo "$BIN/$w: not a link; left alone (the wrapper is $TOOLS/bin/$w)"
+		fi
+	done
+}
+
+wrappers_off() {	# take out the /usr/bin links wrappers_on made
+	for w in $WRAPPERS; do
+		[ -h $BIN/$w ] || continue
+		case "`target $BIN/$w`" in
+		/usr/local/iris-tools/bin/$w) rm -f $BIN/$w; echo "$BIN/$w: removed" ;;
+		esac
+	done
+}
+
 put() {	# put SRC DST: copy under a temporary name, then rename over DST
 	cp "$1" "$2.new"
 	chmod 755 "$2.new"
@@ -184,6 +224,9 @@ for abi in $abis; do
 			done
 		done
 		[ -f $RECORD ] && { echo "record ($RECORD):"; cat $RECORD; }
+		for n in libGL.so libGLcore.so; do
+			[ -h $TOOLS/hostgl/$ld/$n ] && echo "hostgl: $TOOLS/hostgl/$ld/$n -> `target $TOOLS/hostgl/$ld/$n`"
+		done
 		if [ $abi = n32 ] && [ -f $XSERVERS ]; then
 			echo "X servers ($XSERVERS):"
 			grep '^:' $XSERVERS || true
@@ -238,6 +281,13 @@ for abi in $abis; do
 			put "$f" $TOOLS/bin/$abi/`basename "$f"`
 		done
 	fi
+	# hostgl's library directory: libGL.so and libGLcore.so alone, so that
+	# libgl.so (IRIS GL) stays whatever the machine has
+	mkdir -p $TOOLS/hostgl/$ld
+	for n in libGL.so libGLcore.so; do
+		[ -f $LIBS/$n ] && relink /usr/local/iris-tools/$ld/$n $TOOLS/hostgl/$ld/$n
+	done
+	[ $mode = wrappers ] && continue
 
 	for n in $names; do
 		# already recorded (as a link, or moved aside as a file)?
@@ -277,4 +327,12 @@ for abi in $abis; do
 		esac
 	fi
 done
+case $mode in
+install|wrappers) wrappers_on ;;
+undo) wrappers_off ;;
+show)
+	for w in $WRAPPERS; do
+		if [ -h $BIN/$w ]; then echo "$BIN/$w -> `target $BIN/$w`"; else echo "$BIN/$w: not a link"; fi
+	done ;;
+esac
 sync

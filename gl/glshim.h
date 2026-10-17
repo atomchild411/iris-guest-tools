@@ -78,6 +78,10 @@
                                     * composites: answered 1 at once, shown at
                                     * most once a frame; else EINVAL (see
                                     * present_flush) */
+#define HGL_GL_INDEX_FRAMES 0x10013 /* -> 1: SWAP takes a colour-index frame as
+                                    * indices (slot 7 bits 2, 3); else EINVAL,
+                                    * and the frame is put up here (see
+                                    * present_index) */
 
 typedef union {
 	long long i;

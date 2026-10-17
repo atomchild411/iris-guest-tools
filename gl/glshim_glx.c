@@ -522,6 +522,7 @@ present_flush(hgl_slot *a, GLXDrawable d, GLXDrawable took)
  * does not pace it.
  */
 static GLXDrawable index_took;   /* see present_flush */
+static int index_frames = -1;    /* the host takes indices (HGL_GL_INDEX_FRAMES) */
 
 static void
 present_index(Display *dpy, GLXDrawable d, int flush)
@@ -567,9 +568,18 @@ present_index(Display *dpy, GLXDrawable d, int flush)
 	 * colour-index pixels as indices, for it to put into the window itself
 	 * (bit 2; bit 3 for an overlay), as RGBA frames are composited (see
 	 * present_window). It answers nonzero and nothing comes back. A host
-	 * without that hands the frame back, and it is put up below.
+	 * without that says so when asked (HGL_GL_INDEX_FRAMES), and then the
+	 * frame comes back and is put up below.
 	 */
-	if (getenv("IRIS_HOSTGL_XPUTIMAGE") == NULL && wa.placed && wa.unobscured) {
+	if (index_frames < 0) {
+		/* Asked once: a host that does not know indices answers EINVAL, and
+		 * would composite the frame's encoded RGBA as colours. */
+		hgl_slot q[1];
+
+		q[0].i = 0;
+		index_frames = hgl_call2(HGL_GL_INDEX_FRAMES, q, NULL) == 1;
+	}
+	if (index_frames && getenv("IRIS_HOSTGL_XPUTIMAGE") == NULL && wa.placed && wa.unobscured) {
 		a[4].i = wa.x;
 		a[5].i = wa.y;
 		a[6].i = 1 | 4 | (overlay_of(dpy, XVisualIDFromVisual(wa.visual)) >= 0 ? 8 : 0);
@@ -586,7 +596,8 @@ present_index(Display *dpy, GLXDrawable d, int flush)
 		return;
 	}
 	index_took = None;
-	hgl_wait(wait);
+	if (!flush)     /* a flush is not a swap: see present_window */
+		hgl_wait(wait);
 	/* In place: row y's pixels land no later than where they were read. */
 	f = (unsigned char *)index_frame;
 	mask = (1UL << wa.depth) - 1;
@@ -2342,7 +2353,14 @@ present_window(Display *dpy, GLXDrawable d, int front)
 		return;
 	presented = hgl_call2(HGL_GL_SWAP, a, &wait);
 	took = presented != 0 && placed ? d : None;
-	hgl_wait(wait);
+	/*
+	 * Showing the front buffer is a flush, not a swap, and never waits out
+	 * a swap interval. An IRIS whose host paces those too (before
+	 * HGL_GL_PRESENT_LATER) answered SGI's IRIS GL's swapinterval(2) with
+	 * a wait on every primitive flight drew into its cockpit.
+	 */
+	if (!front)
+		hgl_wait(wait);
 	if (presented != 0)
 		return;
 	if (frame_shm == 1)

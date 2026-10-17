@@ -1672,7 +1672,8 @@ t_glx_cmode(void)
 	clear();
 	color(1000);
 	rectf(8, 8, 23, 23);
-	gflush();
+	/* finish, not gflush: read back through X, the drawing has to be done. */
+	finish();
 	XSync(d, False);
 	im = XGetImage(d, win, 0, 0, W, H, AllPlanes, ZPixmap);
 	if (im != NULL) {

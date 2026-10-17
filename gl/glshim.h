@@ -74,6 +74,10 @@
                                     * with its GL thread, else EINVAL (see flush) */
 #define HGL_GL_FRONT_BUFFERS 0x10011 /* -> 1: windows keep a front buffer of their
                                     * own; else EINVAL (see hgl_fronts) */
+#define HGL_GL_PRESENT_LATER 0x10012 /* SWAP's slots, for a flush the display
+                                    * composites: answered 1 at once, shown at
+                                    * most once a frame; else EINVAL (see
+                                    * present_flush) */
 
 typedef union {
 	long long i;

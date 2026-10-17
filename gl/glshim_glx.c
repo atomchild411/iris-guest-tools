@@ -348,6 +348,9 @@ glFlush(void)
 	present_front("glFlush");
 }
 
+/* In glFinish's present, which must not be left for later (present_flush). */
+static int finishing;
+
 void
 glFinish(void)
 {
@@ -357,7 +360,9 @@ glFinish(void)
 	a[0].i = 0;
 	hgl_call(HGL_GL_FINISH, a);
 	present_glxpixmap();
+	finishing = 1;
 	present_front("glFinish");
+	finishing = 0;
 }
 
 GLXPixmap
@@ -475,17 +480,53 @@ static char *index_frame;
 static int index_frame_bytes;
 
 static int unobscured(Display *dpy, Window w);
+
+/* What a present needs to know about its window (see window_where). */
+struct where {
+	int width, height, depth, viewable, unobscured, placed, x, y;
+	Visual *visual;
+};
+static int window_where(Display *dpy, Window w, int cached, struct where *g);
 static int overlay_of(Display *dpy, VisualID id);
+
+/*
+ * A flush's present of a window the display composites, sent so that the
+ * program does not wait for it (HGL_GL_PRESENT_LATER): SGI's IRIS GL flushes
+ * after every primitive it draws into the front buffer, and flight's cockpit
+ * drew itself over a second, a present a primitive, where the board takes a
+ * few hundred milliseconds. The host shows a window's flushes at most once a
+ * frame, the last when the frame is up. Only for a window whose last present
+ * the display took (`took`): one it hands back has to be put up here. Nonzero
+ * when it was sent; zero for an ordinary present, which an IRIS without the
+ * call always gets -- and glFinish, which promises the drawing is done: a
+ * program may read its window back through X next (`finishing`, set by it).
+ */
+static int later_ok = 1;
+
+static int
+present_flush(hgl_slot *a, GLXDrawable d, GLXDrawable took)
+{
+	long long wait = 0;
+
+	if (!later_ok || finishing || !(a[6].i & 1) || d != took)
+		return 0;
+	if (hgl_call2(HGL_GL_PRESENT_LATER, a, &wait) == 1)
+		return 1;
+	later_ok = 0;
+	return 0;
+}
 
 /*
  * A colour-index window to the screen. flush: shown because the program
  * flushed or switched contexts, not by a swap -- bit 4, so a swap interval
  * does not pace it.
  */
+static GLXDrawable index_took;   /* see present_flush */
+
 static void
 present_index(Display *dpy, GLXDrawable d, int flush)
 {
-	XWindowAttributes wa;
+	struct where wa;
 	hgl_slot a[7];
 	long long wait = 0;
 	XImage *im;
@@ -494,7 +535,7 @@ present_index(Display *dpy, GLXDrawable d, int flush)
 	unsigned char *f;
 	int x, y, w, h, bpp;
 
-	if (!XGetWindowAttributes(dpy, d, &wa) || wa.depth > 16 || wa.width <= 0 || wa.height <= 0)
+	if (!window_where(dpy, d, flush, &wa) || wa.depth > 16 || wa.width <= 0 || wa.height <= 0)
 		return;
 	w = wa.width;
 	h = wa.height;
@@ -528,22 +569,23 @@ present_index(Display *dpy, GLXDrawable d, int flush)
 	 * present_window). It answers nonzero and nothing comes back. A host
 	 * without that hands the frame back, and it is put up below.
 	 */
-	if (getenv("IRIS_HOSTGL_XPUTIMAGE") == NULL && wa.map_state == IsViewable && unobscured(dpy, d)) {
-		Window child;
-		int sx, sy;
-
-		if (XTranslateCoordinates(dpy, d, DefaultRootWindow(dpy), 0, 0, &sx, &sy, &child)) {
-			a[4].i = sx;
-			a[5].i = sy;
-			a[6].i = 1 | 4 | (overlay_of(dpy, XVisualIDFromVisual(wa.visual)) >= 0 ? 8 : 0);
-		}
+	if (getenv("IRIS_HOSTGL_XPUTIMAGE") == NULL && wa.placed && wa.unobscured) {
+		a[4].i = wa.x;
+		a[5].i = wa.y;
+		a[6].i = 1 | 4 | (overlay_of(dpy, XVisualIDFromVisual(wa.visual)) >= 0 ? 8 : 0);
 	}
 	if (flush)
 		a[6].i |= 16;
-	if (hgl_call2(HGL_GL_SWAP, a, &wait) != 0) {
+	if (flush && present_flush(a, d, index_took)) {
 		XDestroyImage(im);
 		return;
 	}
+	if (hgl_call2(HGL_GL_SWAP, a, &wait) != 0) {
+		index_took = (a[6].i & 1) ? d : None;
+		XDestroyImage(im);
+		return;
+	}
+	index_took = None;
 	hgl_wait(wait);
 	/* In place: row y's pixels land no later than where they were read. */
 	f = (unsigned char *)index_frame;
@@ -1939,6 +1981,13 @@ static Display *vis_dpy;
 static struct {
 	Window w;
 	int state;              /* a Visibility* value, or -1: not known */
+	/* Where the window is, for presents made by a flush (see window_where):
+	 * valid until the window or its top-level ancestor (a window manager's
+	 * frame, watched too) is configured, mapped, unmapped, reparented or
+	 * destroyed. */
+	Window top;
+	int geo_valid, width, height, depth, x, y, geo_viewable, geo_placed;
+	Visual *visual;
 } vis[VIS_MAX];
 
 static int
@@ -2014,7 +2063,13 @@ unobscured(Display *dpy, Window w)
 				vis[i].w = 0;
 			else if (e.type == UnmapNotify)
 				vis[i].state = -1;
+			if (e.type != VisibilityNotify)
+				vis[i].geo_valid = 0;
 		}
+		/* The frame around it: moved, the window is somewhere else. */
+		for (i = 0; i < VIS_MAX; i++)
+			if (vis[i].w != 0 && vis[i].top != 0 && vis[i].top == e.xany.window)
+				vis[i].geo_valid = 0;
 	}
 	for (i = 0; i < VIS_MAX; i++) {
 		if (vis[i].w == w)
@@ -2028,12 +2083,100 @@ unobscured(Display *dpy, Window w)
 		i = free_slot;
 		vis[i].w = w;
 		vis[i].state = -1;
+		vis[i].top = 0;
+		vis[i].geo_valid = 0;
 		XSelectInput(vis_dpy, w, VisibilityChangeMask | StructureNotifyMask);
 		XSync(vis_dpy, False);
 	}
 	if (vis[i].state < 0)
 		vis[i].state = visibility_now(vis_dpy, w);
 	return vis[i].state == VisibilityUnobscured;
+}
+
+/*
+ * A flush's present skips asking the X server where the window is. SGI's IRIS
+ * GL flushes after every primitive it draws into the front buffer -- flight's
+ * cockpit is thousands of flushes -- and each present asked twice
+ * (XGetWindowAttributes, XTranslateCoordinates), round trips to an X server
+ * on the emulated machine. What the last present learned stays good until an
+ * event on our own connection (see unobscured) says the window or its frame
+ * changed. A swap always asks.
+ */
+static int
+window_where(Display *dpy, Window w, int cached, struct where *g)
+{
+	XWindowAttributes wa;
+	Window root, parent, *kids, child, top;
+	unsigned int n;
+	int i;
+
+	g->unobscured = 0;
+	for (i = 0; i < VIS_MAX && vis[i].w != w; i++)
+		;
+	if (cached && vis_dpy != NULL && i < VIS_MAX) {
+		/* Takes the pending events first, which may say it moved. */
+		g->unobscured = vis[i].geo_viewable && unobscured(dpy, w);
+		if (vis[i].geo_valid && vis[i].w == w) {
+			g->width = vis[i].width;
+			g->height = vis[i].height;
+			g->depth = vis[i].depth;
+			g->visual = vis[i].visual;
+			g->viewable = vis[i].geo_viewable;
+			g->placed = vis[i].geo_placed;
+			g->x = vis[i].x;
+			g->y = vis[i].y;
+			return 1;
+		}
+	}
+	if (!XGetWindowAttributes(dpy, w, &wa))
+		return 0;
+	g->width = wa.width;
+	g->height = wa.height;
+	g->depth = wa.depth;
+	g->visual = wa.visual;
+	g->viewable = wa.map_state == IsViewable;
+	g->unobscured = g->viewable && unobscured(dpy, w);
+	/*
+	 * Only a window that is on the screen now: XTranslateCoordinates also
+	 * answers for one not mapped yet (or iconified), and the host would
+	 * paint the frame over whatever is really there -- atlantis's first
+	 * frames landed at the default 500,500 on top of another window, before
+	 * the window manager had placed it, and stayed there.
+	 */
+	g->placed = g->viewable &&
+	    XTranslateCoordinates(dpy, w, DefaultRootWindow(dpy), 0, 0, &g->x, &g->y, &child) != 0;
+	if (!g->placed)
+		g->x = g->y = 0;
+	for (i = 0; i < VIS_MAX && vis[i].w != w; i++)
+		;
+	if (vis_dpy == NULL || i == VIS_MAX)
+		return 1;       /* nothing watches it: nothing kept */
+	if (vis[i].top == 0) {
+		/* Its ancestor among the root's children: the window manager's frame. */
+		for (top = w;; top = parent) {
+			if (!XQueryTree(vis_dpy, top, &root, &parent, &kids, &n))
+				return 1;
+			if (kids)
+				XFree(kids);
+			if (parent == root || parent == None)
+				break;
+		}
+		vis[i].top = top;
+		if (top != w) {
+			XSelectInput(vis_dpy, top, StructureNotifyMask);
+			XSync(vis_dpy, False);
+		}
+	}
+	vis[i].width = g->width;
+	vis[i].height = g->height;
+	vis[i].depth = g->depth;
+	vis[i].visual = g->visual;
+	vis[i].geo_viewable = g->viewable;
+	vis[i].geo_placed = g->placed;
+	vis[i].x = g->x;
+	vis[i].y = g->y;
+	vis[i].geo_valid = 1;
+	return 1;
 }
 
 static void present_window(Display *dpy, GLXDrawable d, int front);
@@ -2132,14 +2275,18 @@ static void
 present_window(Display *dpy, GLXDrawable d, int front)
 {
 	static int force_xputimage = -1, said_placed = -1;
-	static GLXDrawable said_draw;
+	static GLXDrawable said_draw, took;     /* took: see present_flush */
 	hgl_slot a[7];
 	long long presented, wait = 0;
-	int w, h, x = 0, y = 0, placed = 0, viewable = 0;
-	Window child;
+	int w, h, x, y, placed, viewable;
+	struct where g;
 
-	if (!window_size(dpy, d, &w, &h, &viewable))
+	/* A front buffer is shown by flushes: as often as the program draws. */
+	if (!window_where(dpy, d, front, &g))
 		return;
+	w = g.width;
+	h = g.height;
+	viewable = g.viewable;
 	if (frame == NULL || w != frame_w || h != frame_h || d != frame_draw) {
 		frame_free();
 		if (frame_shm < 0)
@@ -2172,16 +2319,10 @@ present_window(Display *dpy, GLXDrawable d, int front)
 	 */
 	if (force_xputimage < 0)
 		force_xputimage = getenv("IRIS_HOSTGL_XPUTIMAGE") != NULL;
-	/*
-	 * Only a window that is on the screen now: XTranslateCoordinates also
-	 * answers for one not mapped yet (or iconified), and the host would
-	 * paint the frame over whatever is really there -- atlantis's first
-	 * frames landed at the default 500,500 on top of another window, before
-	 * the window manager had placed it, and stayed there. And only one
-	 * nothing covers (see unobscured).
-	 */
-	if (!force_xputimage && viewable && unobscured(dpy, d))
-		placed = XTranslateCoordinates(dpy, d, DefaultRootWindow(dpy), 0, 0, &x, &y, &child) != 0;
+	/* Only a window on the screen that nothing covers (see window_where). */
+	placed = !force_xputimage && g.placed && g.unobscured;
+	x = placed ? g.x : 0;
+	y = placed ? g.y : 0;
 	a[4].i = x;
 	a[5].i = y;
 	/* Bit 1: show the front buffer as it is (HGL_GL_FRONT_BUFFERS). */
@@ -2197,7 +2338,10 @@ present_window(Display *dpy, GLXDrawable d, int front)
 	 * `wait` is what GLX_SGI_swap_control asks this swap to wait -- slept
 	 * here, not on the host, so the emulated machine keeps running.
 	 */
+	if (front && present_flush(a, d, took))
+		return;
 	presented = hgl_call2(HGL_GL_SWAP, a, &wait);
+	took = presented != 0 && placed ? d : None;
 	hgl_wait(wait);
 	if (presented != 0)
 		return;

@@ -286,7 +286,7 @@ void glColor3b(GLbyte red, GLbyte green, GLbyte blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 127.0 + 1.0), 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 127.0 + 1.0), 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3b, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -303,7 +303,7 @@ void glColor3bv(const GLbyte *v)
 	_b0 = _n0 * 1;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 127.0 + 1.0), 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 127.0 + 1.0), 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3bv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -323,7 +323,7 @@ void glColor3d(GLdouble red, GLdouble green, GLdouble blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)red, (double)green, (double)blue, 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)red, (double)green, (double)blue, 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3d, HGL_ROUND8(32 + _tail));
 	HGL_PUT_D(_c, 8, red);
 	HGL_PUT_D(_c, 16, green);
@@ -340,7 +340,7 @@ void glColor3dv(const GLdouble *v)
 	_b0 = _n0 * 8;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)v[0], (double)v[1], (double)v[2], 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)v[0], (double)v[1], (double)v[2], 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3dv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -360,7 +360,7 @@ void glColor3f(GLfloat red, GLfloat green, GLfloat blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)red, (double)green, (double)blue, 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)red, (double)green, (double)blue, 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3f, HGL_ROUND8(16 + _tail));
 	HGL_PUT_F(_c, 4, red);
 	HGL_PUT_F(_c, 8, green);
@@ -377,7 +377,7 @@ void glColor3fv(const GLfloat *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)v[0], (double)v[1], (double)v[2], 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)v[0], (double)v[1], (double)v[2], 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3fv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -397,7 +397,7 @@ void glColor3i(GLint red, GLint green, GLint blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 2147483647.0 + 1.0), 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 2147483647.0 + 1.0), 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3i, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -414,7 +414,7 @@ void glColor3iv(const GLint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 2147483647.0 + 1.0), 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 2147483647.0 + 1.0), 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3iv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -434,7 +434,7 @@ void glColor3s(GLshort red, GLshort green, GLshort blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 32767.0 + 1.0), 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 32767.0 + 1.0), 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3s, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -451,7 +451,7 @@ void glColor3sv(const GLshort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 32767.0 + 1.0), 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 32767.0 + 1.0), 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3sv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -471,7 +471,7 @@ void glColor3ub(GLubyte red, GLubyte green, GLubyte blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 255.0, green / 255.0, blue / 255.0, 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 255.0, green / 255.0, blue / 255.0, 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3ub, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -488,7 +488,7 @@ void glColor3ubv(const GLubyte *v)
 	_b0 = _n0 * 1;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 255.0, v[1] / 255.0, v[2] / 255.0, 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 255.0, v[1] / 255.0, v[2] / 255.0, 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3ubv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -508,7 +508,7 @@ void glColor3ui(GLuint red, GLuint green, GLuint blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 4294967295.0, green / 4294967295.0, blue / 4294967295.0, 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 4294967295.0, green / 4294967295.0, blue / 4294967295.0, 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3ui, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -525,7 +525,7 @@ void glColor3uiv(const GLuint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 4294967295.0, v[1] / 4294967295.0, v[2] / 4294967295.0, 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 4294967295.0, v[1] / 4294967295.0, v[2] / 4294967295.0, 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3uiv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -545,7 +545,7 @@ void glColor3us(GLushort red, GLushort green, GLushort blue)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 65535.0, green / 65535.0, blue / 65535.0, 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 65535.0, green / 65535.0, blue / 65535.0, 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3us, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -562,7 +562,7 @@ void glColor3usv(const GLushort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 65535.0, v[1] / 65535.0, v[2] / 65535.0, 1.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 65535.0, v[1] / 65535.0, v[2] / 65535.0, 1.0);
 	HGL_CMD(_c, HGL_OP_glColor3usv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -582,7 +582,7 @@ void glColor4b(GLbyte red, GLbyte green, GLbyte blue, GLbyte alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * alpha + 1.0) / (2.0 * 127.0 + 1.0));
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * alpha + 1.0) / (2.0 * 127.0 + 1.0));
 	HGL_CMD(_c, HGL_OP_glColor4b, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -600,7 +600,7 @@ void glColor4bv(const GLbyte *v)
 	_b0 = _n0 * 1;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[3] + 1.0) / (2.0 * 127.0 + 1.0));
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[3] + 1.0) / (2.0 * 127.0 + 1.0));
 	HGL_CMD(_c, HGL_OP_glColor4bv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -620,7 +620,7 @@ void glColor4d(GLdouble red, GLdouble green, GLdouble blue, GLdouble alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)red, (double)green, (double)blue, (double)alpha);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)red, (double)green, (double)blue, (double)alpha);
 	HGL_CMD(_c, HGL_OP_glColor4d, HGL_ROUND8(40 + _tail));
 	HGL_PUT_D(_c, 8, red);
 	HGL_PUT_D(_c, 16, green);
@@ -638,7 +638,7 @@ void glColor4dv(const GLdouble *v)
 	_b0 = _n0 * 8;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)v[0], (double)v[1], (double)v[2], (double)v[3]);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)v[0], (double)v[1], (double)v[2], (double)v[3]);
 	HGL_CMD(_c, HGL_OP_glColor4dv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -658,7 +658,7 @@ void glColor4f(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)red, (double)green, (double)blue, (double)alpha);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)red, (double)green, (double)blue, (double)alpha);
 	HGL_CMD(_c, HGL_OP_glColor4f, HGL_ROUND8(24 + _tail));
 	HGL_PUT_F(_c, 4, red);
 	HGL_PUT_F(_c, 8, green);
@@ -676,7 +676,7 @@ void glColor4fv(const GLfloat *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)v[0], (double)v[1], (double)v[2], (double)v[3]);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (double)v[0], (double)v[1], (double)v[2], (double)v[3]);
 	HGL_CMD(_c, HGL_OP_glColor4fv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -696,7 +696,7 @@ void glColor4i(GLint red, GLint green, GLint blue, GLint alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * alpha + 1.0) / (2.0 * 2147483647.0 + 1.0));
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * alpha + 1.0) / (2.0 * 2147483647.0 + 1.0));
 	HGL_CMD(_c, HGL_OP_glColor4i, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -714,7 +714,7 @@ void glColor4iv(const GLint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[3] + 1.0) / (2.0 * 2147483647.0 + 1.0));
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[3] + 1.0) / (2.0 * 2147483647.0 + 1.0));
 	HGL_CMD(_c, HGL_OP_glColor4iv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -734,7 +734,7 @@ void glColor4s(GLshort red, GLshort green, GLshort blue, GLshort alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * alpha + 1.0) / (2.0 * 32767.0 + 1.0));
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * red + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * green + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * blue + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * alpha + 1.0) / (2.0 * 32767.0 + 1.0));
 	HGL_CMD(_c, HGL_OP_glColor4s, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -752,7 +752,7 @@ void glColor4sv(const GLshort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[3] + 1.0) / (2.0 * 32767.0 + 1.0));
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, (2.0 * v[0] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[3] + 1.0) / (2.0 * 32767.0 + 1.0));
 	HGL_CMD(_c, HGL_OP_glColor4sv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -772,7 +772,7 @@ void glColor4ub(GLubyte red, GLubyte green, GLubyte blue, GLubyte alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 255.0, green / 255.0, blue / 255.0, alpha / 255.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 255.0, green / 255.0, blue / 255.0, alpha / 255.0);
 	HGL_CMD(_c, HGL_OP_glColor4ub, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -790,7 +790,7 @@ void glColor4ubv(const GLubyte *v)
 	_b0 = _n0 * 1;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 255.0, v[1] / 255.0, v[2] / 255.0, v[3] / 255.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 255.0, v[1] / 255.0, v[2] / 255.0, v[3] / 255.0);
 	HGL_CMD(_c, HGL_OP_glColor4ubv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -810,7 +810,7 @@ void glColor4ui(GLuint red, GLuint green, GLuint blue, GLuint alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 4294967295.0, green / 4294967295.0, blue / 4294967295.0, alpha / 4294967295.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 4294967295.0, green / 4294967295.0, blue / 4294967295.0, alpha / 4294967295.0);
 	HGL_CMD(_c, HGL_OP_glColor4ui, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -828,7 +828,7 @@ void glColor4uiv(const GLuint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 4294967295.0, v[1] / 4294967295.0, v[2] / 4294967295.0, v[3] / 4294967295.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 4294967295.0, v[1] / 4294967295.0, v[2] / 4294967295.0, v[3] / 4294967295.0);
 	HGL_CMD(_c, HGL_OP_glColor4uiv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -848,7 +848,7 @@ void glColor4us(GLushort red, GLushort green, GLushort blue, GLushort alpha)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 65535.0, green / 65535.0, blue / 65535.0, alpha / 65535.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, red / 65535.0, green / 65535.0, blue / 65535.0, alpha / 65535.0);
 	HGL_CMD(_c, HGL_OP_glColor4us, HGL_ROUND8(24 + _tail));
 	HGL_PUT_I(_c, 4, red);
 	HGL_PUT_I(_c, 8, green);
@@ -866,7 +866,7 @@ void glColor4usv(const GLushort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 1; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 65535.0, v[1] / 65535.0, v[2] / 65535.0, v[3] / 65535.0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_COLOUR, v[0] / 65535.0, v[1] / 65535.0, v[2] / 65535.0, v[3] / 65535.0);
 	HGL_CMD(_c, HGL_OP_glColor4usv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -3892,7 +3892,7 @@ void glNormal3b(GLbyte nx, GLbyte ny, GLbyte nz)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 0; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * nx + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * ny + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * nz + 1.0) / (2.0 * 127.0 + 1.0), 0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * nx + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * ny + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * nz + 1.0) / (2.0 * 127.0 + 1.0), 0);
 	HGL_CMD(_c, HGL_OP_glNormal3b, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, nx);
 	HGL_PUT_I(_c, 8, ny);
@@ -3909,7 +3909,7 @@ void glNormal3bv(const GLbyte *v)
 	_b0 = _n0 * 1;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 0; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * v[0] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 127.0 + 1.0), 0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * v[0] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 127.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 127.0 + 1.0), 0);
 	HGL_CMD(_c, HGL_OP_glNormal3bv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -3929,7 +3929,7 @@ void glNormal3d(GLdouble nx, GLdouble ny, GLdouble nz)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 0; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (double)nx, (double)ny, (double)nz, 0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (double)nx, (double)ny, (double)nz, 0);
 	HGL_CMD(_c, HGL_OP_glNormal3d, HGL_ROUND8(32 + _tail));
 	HGL_PUT_D(_c, 8, nx);
 	HGL_PUT_D(_c, 16, ny);
@@ -3946,7 +3946,7 @@ void glNormal3dv(const GLdouble *v)
 	_b0 = _n0 * 8;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 0; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (double)v[0], (double)v[1], (double)v[2], 0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (double)v[0], (double)v[1], (double)v[2], 0);
 	HGL_CMD(_c, HGL_OP_glNormal3dv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -3966,7 +3966,7 @@ void glNormal3f(GLfloat nx, GLfloat ny, GLfloat nz)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 0; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (double)nx, (double)ny, (double)nz, 0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (double)nx, (double)ny, (double)nz, 0);
 	HGL_CMD(_c, HGL_OP_glNormal3f, HGL_ROUND8(16 + _tail));
 	HGL_PUT_F(_c, 4, nx);
 	HGL_PUT_F(_c, 8, ny);
@@ -3983,7 +3983,7 @@ void glNormal3fv(const GLfloat *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 0; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (double)v[0], (double)v[1], (double)v[2], 0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (double)v[0], (double)v[1], (double)v[2], 0);
 	HGL_CMD(_c, HGL_OP_glNormal3fv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -4003,7 +4003,7 @@ void glNormal3i(GLint nx, GLint ny, GLint nz)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 0; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * nx + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * ny + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * nz + 1.0) / (2.0 * 2147483647.0 + 1.0), 0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * nx + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * ny + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * nz + 1.0) / (2.0 * 2147483647.0 + 1.0), 0);
 	HGL_CMD(_c, HGL_OP_glNormal3i, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, nx);
 	HGL_PUT_I(_c, 8, ny);
@@ -4020,7 +4020,7 @@ void glNormal3iv(const GLint *v)
 	_b0 = _n0 * 4;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 0; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * v[0] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 2147483647.0 + 1.0), 0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * v[0] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 2147483647.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 2147483647.0 + 1.0), 0);
 	HGL_CMD(_c, HGL_OP_glNormal3iv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {
@@ -4040,7 +4040,7 @@ void glNormal3s(GLshort nx, GLshort ny, GLshort nz)
 {
 	unsigned char *_c;
 	unsigned _tail = 0;
-	hgl_lmc_colour_last = 0; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * nx + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * ny + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * nz + 1.0) / (2.0 * 32767.0 + 1.0), 0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * nx + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * ny + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * nz + 1.0) / (2.0 * 32767.0 + 1.0), 0);
 	HGL_CMD(_c, HGL_OP_glNormal3s, HGL_ROUND8(16 + _tail));
 	HGL_PUT_I(_c, 4, nx);
 	HGL_PUT_I(_c, 8, ny);
@@ -4057,7 +4057,7 @@ void glNormal3sv(const GLshort *v)
 	_b0 = _n0 * 2;
 	_r0 = _b0 > HGL_INLINE_MAX;
 	if (!_r0) _tail += (_b0 + 3) & ~3;
-	hgl_lmc_colour_last = 0; if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * v[0] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 32767.0 + 1.0), 0);
+	if (hgl_tm && !hgl_tm_internal) hgl_tm_attr(HGL_TM_NORMAL, (2.0 * v[0] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[1] + 1.0) / (2.0 * 32767.0 + 1.0), (2.0 * v[2] + 1.0) / (2.0 * 32767.0 + 1.0), 0);
 	HGL_CMD(_c, HGL_OP_glNormal3sv, HGL_ROUND8(16 + _tail));
 	_at = 16;
 	if (_r0) {

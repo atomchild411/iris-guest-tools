@@ -63,6 +63,7 @@ extern void hgl_draw_index(GLsizei w, GLsizei h, GLenum type, const GLvoid *pixe
  * hooks. */
 extern int hgl_lmc, hgl_lmc_colour_last, hgl_lmc_pending, hgl_lmc_off;
 extern void hgl_lmc_set(int on);
+extern void hgl_lmc_colornormal(int on);
 extern void hgl_lmc_lighting(GLenum cap, int on);
 extern int hgl_lmc_begin(GLenum mode);
 extern void hgl_lmc_vertex(void);

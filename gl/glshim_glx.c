@@ -2623,10 +2623,20 @@ int glXGetFBConfigFltAttribSGIX(Display *d, GLXFBConfigSGIX c, int a, float *v) 
 /*
  * SGI's private GL_SGIX_igloo_interface, which SGI's IRIS GL (IGLOO) looks up
  * in libGL.so to have SGI's library do the IRIS GL things OpenGL does not.
- * 0x81A3 (its first word: on or off) is lmcolor(LMC_COLOR), done here (see
- * hgl_lmc in glshim_rt.c); 0x81A4 (on or off) a triangle mesh and 0x81A0 its
- * swaptmesh (hgl_tm); the rest are taken and left to IGLOO's own way
- * (IRIS_GL_IGLOO_LOG=1 lists them).
+ * The pnames (named in the Khronos registry, unused there), the first word of
+ * `params` on or off:
+ *
+ *   0x81A3 LMC_COLOR     lmcolor(LMC_COLOR)                  hgl_lmc (glshim_rt.c)
+ *   0x81A1 COLORNORMAL   a colour, not a normal, came last   hgl_lmc
+ *   0x81A4 TMESHMODE     in a triangle mesh                  hgl_tm
+ *   0x81A0 SWAPTMESH     swaptmesh() (no params)             hgl_tm
+ *   0x81A2 IRISGL_MODE   an IRIS GL context                  taken: IMPACT's
+ *   0x819F VIEWPORT_OFFSET                                   libGL does nothing either
+ *   0x819E FULLSCREEN    fullscrn()                          taken, not done
+ *
+ * IMPACT's libGL has no TMESHMODE (it answers GL_INVALID_ENUM; its swap works
+ * on the mesh the board keeps); here it is how a mesh is told from any other
+ * strip. IRIS_GL_IGLOO_LOG=1 lists the calls.
  */
 void
 glIglooInterfaceSGIX(GLenum pname, const GLvoid *params)
@@ -2640,6 +2650,8 @@ glIglooInterfaceSGIX(GLenum pname, const GLvoid *params)
 		fprintf(stderr, "libGL: glIglooInterfaceSGIX(%#x, %#x)\n", (unsigned)pname, u != NULL ? u[0] : 0);
 	if (pname == 0x81A3 && u != NULL)
 		hgl_lmc_set(u[0] != 0);
+	else if (pname == 0x81A1 && u != NULL)
+		hgl_lmc_colornormal(u[0] != 0);
 	else if (pname == 0x81A4 && u != NULL)
 		hgl_tm_set(u[0] != 0);
 	else if (pname == 0x81A0)

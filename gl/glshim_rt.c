@@ -886,18 +886,20 @@ hgl_clear_index(GLfloat c)
 
 /*
  * lmcolor(LMC_COLOR), for SGI's IRIS GL (IGLOO), which asks SGI's libGL for it
- * through its private GL_SGIX_igloo_interface (glIglooInterfaceSGIX(0x81A3),
- * glshim_glx.c): a vertex is lit only when a normal was the last of a colour
- * and a normal sent before it; when the colour was, it is drawn in the colour
- * (lmcolor(3G)). Without it, a shape a program draws with a colour and no
- * normal in a lit scene -- UroMan's translucent cutting plane -- came out in
- * the material's colour. OpenGL lights a primitive whole: while it is on and
- * the program has lighting on, glBegin is held until the first vertex, and
- * if a colour came last, lighting goes off for that primitive and back on
- * at glEnd. (The same rule as the IRIS GL shim's, irisgl_draw.c.)
+ * through its private GL_SGIX_igloo_interface (glIglooInterfaceSGIX,
+ * glshim_glx.c): 0x81A3 the mode on or off, 0x81A1 (COLORNORMAL) whether a
+ * colour rather than a normal came last, which IGLOO keeps itself and says
+ * when it changes. A vertex is drawn in the colour, unlit, while both are on
+ * (lmcolor(3G)); IMPACT's libGL switches its lighting mode on exactly that.
+ * Without it, a shape a program draws with a colour and no normal in a lit
+ * scene -- UroMan's translucent cutting plane -- came out in the material's
+ * colour. OpenGL lights a primitive whole: while the mode is on and the
+ * program has lighting on, glBegin is held until the first vertex, and if a
+ * colour came last, lighting goes off for that primitive and back on at
+ * glEnd. (The same rule as the IRIS GL shim's, irisgl_draw.c.)
  */
 int hgl_lmc;            /* on, for the current context */
-int hgl_lmc_colour_last;
+int hgl_lmc_colour_last;    /* COLORNORMAL: a colour came last */
 int hgl_lmc_pending;    /* a held glBegin: its mode + 1 */
 int hgl_lmc_off;        /* lighting went off for this primitive */
 int hgl_lmc_internal;   /* the calls below, not the program's */
@@ -907,6 +909,12 @@ hgl_lmc_set(int on)
 {
 	cur_client->lmc = on != 0;
 	hgl_lmc = cur_client->lmc;
+}
+
+void
+hgl_lmc_colornormal(int on)
+{
+	hgl_lmc_colour_last = on != 0;
 }
 
 void
@@ -1041,7 +1049,6 @@ void
 hgl_tm_swap(void)
 {
 	struct tm_vertex older;
-	int colour_last = hgl_lmc_colour_last;
 
 	if (!hgl_tm || tm_count < 2)
 		return;
@@ -1050,7 +1057,6 @@ hgl_tm_swap(void)
 	tm_send(&older, 1);
 	tm_send(&tm_cur, 0);
 	hgl_tm_internal = 0;
-	hgl_lmc_colour_last = colour_last;
 	tm_reg[0] = tm_reg[1];
 	tm_reg[1] = older;
 }
